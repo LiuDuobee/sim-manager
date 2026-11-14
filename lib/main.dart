@@ -1,0 +1,603 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const SimManagerApp());
+}
+
+class SimManagerApp extends StatelessWidget {
+  const SimManagerApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'SIM 卡管理',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2563EB)),
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF7F8FC),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(),
+        ),
+      ),
+      home: const SimHomePage(),
+    );
+  }
+}
+
+enum SimType { physical, esim }
+
+enum SimStatus { normal, renewing, expired }
+
+class SimCard {
+  const SimCard({
+    required this.id,
+    required this.nickname,
+    required this.operatorName,
+    required this.type,
+    required this.planName,
+    required this.monthlyFee,
+    required this.renewalCycle,
+    required this.nextRenewalDate,
+    required this.expiryDate,
+    this.phoneNumber = '',
+    this.notes = '',
+  });
+
+  final String id;
+  final String nickname;
+  final String phoneNumber;
+  final String operatorName;
+  final SimType type;
+  final String notes;
+  final String planName;
+  final double monthlyFee;
+  final String renewalCycle;
+  final DateTime nextRenewalDate;
+  final DateTime expiryDate;
+
+  SimStatus get status {
+    final now = DateTime.now();
+    if (expiryDate.isBefore(now)) return SimStatus.expired;
+    if (nextRenewalDate.difference(now).inDays <= 7) {
+      return SimStatus.renewing;
+    }
+    return SimStatus.normal;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'nickname': nickname,
+        'phoneNumber': phoneNumber,
+        'operatorName': operatorName,
+        'type': type.name,
+        'notes': notes,
+        'planName': planName,
+        'monthlyFee': monthlyFee,
+        'renewalCycle': renewalCycle,
+        'nextRenewalDate': nextRenewalDate.toIso8601String(),
+        'expiryDate': expiryDate.toIso8601String(),
+      };
+
+  factory SimCard.fromJson(Map<String, dynamic> json) => SimCard(
+        id: json['id'] as String,
+        nickname: json['nickname'] as String,
+        phoneNumber: json['phoneNumber'] as String? ?? '',
+        operatorName: json['operatorName'] as String,
+        type: SimType.values.byName(json['type'] as String),
+        notes: json['notes'] as String? ?? '',
+        planName: json['planName'] as String,
+        monthlyFee: (json['monthlyFee'] as num).toDouble(),
+        renewalCycle: json['renewalCycle'] as String,
+        nextRenewalDate: DateTime.parse(json['nextRenewalDate'] as String),
+        expiryDate: DateTime.parse(json['expiryDate'] as String),
+      );
+}
+
+class SimStorage {
+  static const _key = 'sim_cards';
+
+  Future<List<SimCard>> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_key);
+    if (raw == null) return [];
+    try {
+      return (jsonDecode(raw) as List)
+          .map((item) => SimCard.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> save(List<SimCard> cards) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _key, jsonEncode(cards.map((e) => e.toJson()).toList()));
+  }
+}
+
+class SimHomePage extends StatefulWidget {
+  const SimHomePage({super.key});
+
+  @override
+  State<SimHomePage> createState() => _SimHomePageState();
+}
+
+class _SimHomePageState extends State<SimHomePage> {
+  final _storage = SimStorage();
+  List<SimCard> _cards = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final cards = await _storage.load();
+    if (mounted)
+      setState(() =>
+          _cards = cards..sort((a, b) => a.expiryDate.compareTo(b.expiryDate)));
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _edit([SimCard? card]) async {
+    final result = await Navigator.of(context).push<SimCard>(
+      MaterialPageRoute(builder: (_) => SimFormPage(initial: card)),
+    );
+    if (result == null) return;
+    final next = [..._cards];
+    final index = next.indexWhere((item) => item.id == result.id);
+    if (index >= 0) {
+      next[index] = result;
+    } else {
+      next.add(result);
+    }
+    await _storage.save(next);
+    if (mounted) setState(() => _cards = next);
+  }
+
+  Future<void> _delete(SimCard card) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除卡片？'),
+        content: Text('确定删除“${card.nickname}”吗？此操作不可撤销。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final next = _cards.where((item) => item.id != card.id).toList();
+    await _storage.save(next);
+    if (mounted) setState(() => _cards = next);
+  }
+
+  Future<void> _settings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+          builder: (_) => BackupPage(cards: _cards, onImport: _importCards)),
+    );
+  }
+
+  Future<void> _importCards(List<SimCard> cards) async {
+    await _storage.save(cards);
+    if (mounted) setState(() => _cards = cards);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('SIM 卡管理',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(
+              onPressed: _settings,
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: '设置')
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _edit(),
+        icon: const Icon(Icons.add),
+        label: const Text('添加 SIM 卡'),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _cards.isEmpty
+              ? _EmptyState(onAdd: () => _edit())
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                  children: [
+                    Text('${_cards.length} 张卡片',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 12),
+                    ..._cards.map((card) => _SimCardTile(
+                        card: card,
+                        onEdit: () => _edit(card),
+                        onDelete: () => _delete(card))),
+                  ],
+                ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.onAdd});
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.sim_card_outlined,
+                  size: 72, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(height: 16),
+              Text('还没有 SIM 卡',
+                  style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 8),
+              const Text('添加你的第一张实体 SIM 或 eSIM，开始管理套餐和到期日期。',
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                  onPressed: onAdd,
+                  icon: const Icon(Icons.add),
+                  label: const Text('添加 SIM 卡')),
+            ],
+          ),
+        ),
+      );
+}
+
+class _SimCardTile extends StatelessWidget {
+  const _SimCardTile(
+      {required this.card, required this.onEdit, required this.onDelete});
+  final SimCard card;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = switch (card.status) {
+      SimStatus.normal => ('正常', Colors.green),
+      SimStatus.renewing => ('即将续费', Colors.orange),
+      SimStatus.expired => ('已过期', Colors.red),
+    };
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              CircleAvatar(
+                  child: Icon(card.type == SimType.esim
+                      ? Icons.contactless
+                      : Icons.sim_card)),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text(card.nickname,
+                        style: const TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.bold)),
+                    Text(
+                        '${card.operatorName} · ${card.type == SimType.esim ? 'eSIM' : '实体 SIM'}'),
+                  ])),
+              PopupMenuButton<String>(
+                onSelected: (value) => value == 'edit' ? onEdit() : onDelete(),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'edit', child: Text('编辑')),
+                  PopupMenuItem(value: 'delete', child: Text('删除')),
+                ],
+              ),
+            ]),
+            const Divider(height: 24),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              Chip(
+                  label: Text(status.$1),
+                  avatar: Icon(Icons.circle, size: 10, color: status.$2)),
+              Chip(label: Text(card.planName)),
+              Chip(
+                  label: Text(
+                      '¥${card.monthlyFee.toStringAsFixed(2)}/${card.renewalCycle}')),
+            ]),
+            const SizedBox(height: 8),
+            Text(
+                '下次续费：${_date(card.nextRenewalDate)}    到期：${_date(card.expiryDate)}'),
+            if (card.phoneNumber.isNotEmpty) Text('手机号：${card.phoneNumber}'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _date(DateTime value) => DateFormat('yyyy年M月d日').format(value);
+
+class SimFormPage extends StatefulWidget {
+  const SimFormPage({super.key, this.initial});
+  final SimCard? initial;
+
+  @override
+  State<SimFormPage> createState() => _SimFormPageState();
+}
+
+class _SimFormPageState extends State<SimFormPage> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nickname;
+  late final TextEditingController _phone;
+  late final TextEditingController _operator;
+  late final TextEditingController _notes;
+  late final TextEditingController _plan;
+  late final TextEditingController _fee;
+  SimType _type = SimType.physical;
+  String _cycle = '月';
+  late DateTime _renewal;
+  late DateTime _expiry;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = widget.initial;
+    _nickname = TextEditingController(text: c?.nickname ?? '');
+    _phone = TextEditingController(text: c?.phoneNumber ?? '');
+    _operator = TextEditingController(text: c?.operatorName ?? '');
+    _notes = TextEditingController(text: c?.notes ?? '');
+    _plan = TextEditingController(text: c?.planName ?? '');
+    _fee =
+        TextEditingController(text: c == null ? '' : c.monthlyFee.toString());
+    _type = c?.type ?? SimType.physical;
+    _cycle = c?.renewalCycle ?? '月';
+    _renewal =
+        c?.nextRenewalDate ?? DateTime.now().add(const Duration(days: 30));
+    _expiry = c?.expiryDate ?? DateTime.now().add(const Duration(days: 365));
+  }
+
+  @override
+  void dispose() {
+    for (final controller in [
+      _nickname,
+      _phone,
+      _operator,
+      _notes,
+      _plan,
+      _fee
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _pickDate(bool renewal) async {
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      initialDate: renewal ? _renewal : _expiry,
+    );
+    if (picked == null) return;
+    setState(() => renewal ? _renewal = picked : _expiry = picked);
+  }
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    final fee = double.tryParse(_fee.text.trim());
+    if (fee == null || fee < 0) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请输入有效月费')));
+      return;
+    }
+    if (_expiry.isBefore(_renewal)) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('到期日期不能早于下次续费日期')));
+      return;
+    }
+    Navigator.pop(
+      context,
+      SimCard(
+        id: widget.initial?.id ??
+            DateTime.now().microsecondsSinceEpoch.toString(),
+        nickname: _nickname.text.trim(),
+        phoneNumber: _phone.text.trim(),
+        operatorName: _operator.text.trim(),
+        type: _type,
+        notes: _notes.text.trim(),
+        planName: _plan.text.trim(),
+        monthlyFee: fee,
+        renewalCycle: _cycle,
+        nextRenewalDate: _renewal,
+        expiryDate: _expiry,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+            title: Text(widget.initial == null ? '添加 SIM 卡' : '编辑 SIM 卡')),
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text('基本资料', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              TextFormField(
+                  controller: _nickname,
+                  decoration: const InputDecoration(labelText: '昵称 *'),
+                  validator: _required),
+              const SizedBox(height: 12),
+              TextFormField(
+                  controller: _phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: '手机号（可选）')),
+              const SizedBox(height: 12),
+              TextFormField(
+                  controller: _operator,
+                  decoration: const InputDecoration(labelText: '运营商 *'),
+                  validator: _required),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<SimType>(
+                value: _type,
+                decoration: const InputDecoration(labelText: '卡类型'),
+                items: const [
+                  DropdownMenuItem(
+                      value: SimType.physical, child: Text('实体 SIM')),
+                  DropdownMenuItem(value: SimType.esim, child: Text('eSIM')),
+                ],
+                onChanged: (value) => setState(() => _type = value!),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                  controller: _notes,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: '备注')),
+              const SizedBox(height: 24),
+              Text('套餐信息', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              TextFormField(
+                  controller: _plan,
+                  decoration: const InputDecoration(labelText: '套餐名称 *'),
+                  validator: _required),
+              const SizedBox(height: 12),
+              TextFormField(
+                  controller: _fee,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: '月费 *', prefixText: '¥ '),
+                  validator: _required),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _cycle,
+                decoration: const InputDecoration(labelText: '续费周期'),
+                items: const ['月', '季度', '半年', '年']
+                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .toList(),
+                onChanged: (value) => setState(() => _cycle = value!),
+              ),
+              const SizedBox(height: 12),
+              _DateField(
+                  label: '下次续费日期',
+                  date: _renewal,
+                  onTap: () => _pickDate(true)),
+              const SizedBox(height: 12),
+              _DateField(
+                  label: '到期日期', date: _expiry, onTap: () => _pickDate(false)),
+              const SizedBox(height: 28),
+              FilledButton(onPressed: _save, child: const Text('保存')),
+            ],
+          ),
+        ),
+      );
+}
+
+String? _required(String? value) =>
+    value == null || value.trim().isEmpty ? '请填写此字段' : null;
+
+class _DateField extends StatelessWidget {
+  const _DateField(
+      {required this.label, required this.date, required this.onTap});
+  final String label;
+  final DateTime date;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        child: InputDecorator(
+          decoration: InputDecoration(
+              labelText: label,
+              suffixIcon: const Icon(Icons.calendar_today_outlined)),
+          child: Text(_date(date)),
+        ),
+      );
+}
+
+class BackupPage extends StatefulWidget {
+  const BackupPage({super.key, required this.cards, required this.onImport});
+  final List<SimCard> cards;
+  final Future<void> Function(List<SimCard>) onImport;
+
+  @override
+  State<BackupPage> createState() => _BackupPageState();
+}
+
+class _BackupPageState extends State<BackupPage> {
+  late final TextEditingController _json;
+
+  @override
+  void initState() {
+    super.initState();
+    _json = TextEditingController(
+        text: const JsonEncoder.withIndent('  ')
+            .convert(widget.cards.map((e) => e.toJson()).toList()));
+  }
+
+  @override
+  void dispose() {
+    _json.dispose();
+    super.dispose();
+  }
+
+  Future<void> _import() async {
+    try {
+      final list = (jsonDecode(_json.text) as List)
+          .map((item) => SimCard.fromJson(item as Map<String, dynamic>))
+          .toList();
+      await widget.onImport(list);
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('导入成功')));
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('JSON 格式无效，请检查备份内容')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('设置与备份')),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text('JSON 备份', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            const Text('复制下方内容保存到安全位置；导入时粘贴完整 JSON 后点击“导入”。'),
+            const SizedBox(height: 12),
+            TextField(
+                controller: _json,
+                minLines: 14,
+                maxLines: 24,
+                decoration:
+                    const InputDecoration(border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+                onPressed: _import,
+                icon: const Icon(Icons.download),
+                label: const Text('导入 JSON')),
+          ],
+        ),
+      );
+}
