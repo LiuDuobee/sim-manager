@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SIMVault</string>
+    <string name="title_activity_main">SIMVault</string>
+    <string name="package_name">com.liuduobee.simvault</string>
+    <string name="custom_url_scheme">com.liuduobee.simvault</string>
+</resources>
