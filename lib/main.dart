@@ -375,153 +375,150 @@ class _SimHomePageState extends State<SimHomePage> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _cards.isEmpty
-              ? _EmptyState(onAdd: () => _edit())
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.sensors,
-                            color: Color(0xFF64D9C3), size: 15),
-                        const SizedBox(width: 6),
-                        const Text('OMAPI READY',
-                            style: TextStyle(
-                                color: Color(0xFF6E9F9F),
-                                fontSize: 10,
-                                letterSpacing: 1.2)),
-                        const Spacer(),
-                        Text('${_cards.length} ACTIVE RECORDS',
-                            style: const TextStyle(
-                                color: Color(0xFF66819A),
-                                fontSize: 9,
-                                letterSpacing: 1)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      height: 350,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0B111B),
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(color: const Color(0x3A3F82B8)),
-                        boxShadow: const [
-                          BoxShadow(
-                              color: Color(0x441A70A2),
-                              blurRadius: 28,
-                              spreadRadius: -12)
-                        ],
-                      ),
-                      child: Stack(
-                        children: [
-                          const Positioned(
-                            left: 18,
-                            top: 16,
-                            child: Text(
-                              'WORLD CARD ATLAS  /  LIVE TELEMETRY',
-                              style: TextStyle(
-                                color: Color(0xFF9AB4D0),
-                                fontSize: 12,
-                                letterSpacing: 1.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const Positioned(
-                            right: 18,
-                            top: 16,
-                            child: Text('DRAG · ZOOM · TAP NODE',
-                                style: TextStyle(
-                                    color: Color(0xFF5C7890),
-                                    fontSize: 9,
-                                    letterSpacing: 1)),
-                          ),
-                          AtlasGlobe(
-                            countryCodes: countryCodes,
-                            onCountrySelected: (code) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('已聚焦 $code 地区')),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        _MetricCard(label: '藏卡总数', value: '${_cards.length}'),
-                        const SizedBox(width: 8),
-                        _MetricCard(
-                          label: '需关注',
-                          value:
-                              '${_cards.where((card) => card.status != SimStatus.normal).length}',
-                          accent: const Color(0xFFFFB45C),
-                        ),
-                        const SizedBox(width: 8),
-                        _MetricCard(
-                          label: '地区',
-                          value: '${countryCodes.length}',
-                          accent: const Color(0xFF67D5C2),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    _RadarPanel(cards: _cards),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        const Text(
-                          'MY COLLECTION',
+                    const Icon(Icons.sensors,
+                        color: Color(0xFF64D9C3), size: 15),
+                    const SizedBox(width: 6),
+                    const Text('OMAPI READY',
+                        style: TextStyle(
+                            color: Color(0xFF6E9F9F),
+                            fontSize: 10,
+                            letterSpacing: 1.2)),
+                    const Spacer(),
+                    Text('${_cards.length} ACTIVE RECORDS',
+                        style: const TextStyle(
+                            color: Color(0xFF66819A),
+                            fontSize: 9,
+                            letterSpacing: 1)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  height: 350,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0B111B),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: const Color(0x3A3F82B8)),
+                    boxShadow: const [
+                      BoxShadow(
+                          color: Color(0x441A70A2),
+                          blurRadius: 28,
+                          spreadRadius: -12)
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      const Positioned(
+                        left: 18,
+                        top: 16,
+                        child: Text(
+                          'WORLD CARD ATLAS  /  LIVE TELEMETRY',
                           style: TextStyle(
                             color: Color(0xFF9AB4D0),
                             fontSize: 12,
-                            letterSpacing: 1.3,
+                            letterSpacing: 1.5,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const Spacer(),
-                        Text('${visibleCards.length} / ${_cards.length}',
-                            style: const TextStyle(
-                                color: Color(0xFF66819A), fontSize: 10)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 7,
-                      runSpacing: 7,
-                      children: ['全部', '即将续费', '已过期', 'eSIM']
-                          .map((item) => ChoiceChip(
-                                label: Text(item),
-                                selected: _filter == item,
-                                onSelected: (_) =>
-                                    setState(() => _filter = item),
-                                labelStyle: TextStyle(
-                                    color: _filter == item
-                                        ? const Color(0xFF07111A)
-                                        : const Color(0xFF86A5BC),
-                                    fontSize: 11),
-                                selectedColor: const Color(0xFF8FD8FF),
-                                backgroundColor: const Color(0xFF101A26),
-                                side:
-                                    const BorderSide(color: Color(0x334A789B)),
-                              ))
-                          .toList(),
-                    ),
-                    const SizedBox(height: 12),
-                    if (visibleCards.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(
-                            child: Text('当前筛选没有匹配的卡片',
-                                style: TextStyle(color: Color(0xFF718CA5)))),
                       ),
-                    ...visibleCards.map((card) => _SimCardTile(
-                        card: card,
-                        onEdit: () => _edit(card),
-                        onDelete: () => _delete(card))),
+                      const Positioned(
+                        right: 18,
+                        top: 16,
+                        child: Text('DRAG · ZOOM · TAP NODE',
+                            style: TextStyle(
+                                color: Color(0xFF5C7890),
+                                fontSize: 9,
+                                letterSpacing: 1)),
+                      ),
+                      AtlasGlobe(
+                        countryCodes: countryCodes,
+                        onCountrySelected: (code) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('已聚焦 $code 地区')),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                Row(
+                  children: [
+                    _MetricCard(label: '藏卡总数', value: '${_cards.length}'),
+                    const SizedBox(width: 8),
+                    _MetricCard(
+                      label: '需关注',
+                      value:
+                          '${_cards.where((card) => card.status != SimStatus.normal).length}',
+                      accent: const Color(0xFFFFB45C),
+                    ),
+                    const SizedBox(width: 8),
+                    _MetricCard(
+                      label: '地区',
+                      value: '${countryCodes.length}',
+                      accent: const Color(0xFF67D5C2),
+                    ),
                   ],
                 ),
+                const SizedBox(height: 18),
+                _RadarPanel(cards: _cards),
+                if (_cards.isEmpty) _EmptyState(onAdd: () => _edit()),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    const Text(
+                      'MY COLLECTION',
+                      style: TextStyle(
+                        color: Color(0xFF9AB4D0),
+                        fontSize: 12,
+                        letterSpacing: 1.3,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text('${visibleCards.length} / ${_cards.length}',
+                        style: const TextStyle(
+                            color: Color(0xFF66819A), fontSize: 10)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: ['全部', '即将续费', '已过期', 'eSIM']
+                      .map((item) => ChoiceChip(
+                            label: Text(item),
+                            selected: _filter == item,
+                            onSelected: (_) => setState(() => _filter = item),
+                            labelStyle: TextStyle(
+                                color: _filter == item
+                                    ? const Color(0xFF07111A)
+                                    : const Color(0xFF86A5BC),
+                                fontSize: 11),
+                            selectedColor: const Color(0xFF8FD8FF),
+                            backgroundColor: const Color(0xFF101A26),
+                            side: const BorderSide(color: Color(0x334A789B)),
+                          ))
+                      .toList(),
+                ),
+                const SizedBox(height: 12),
+                if (_cards.isNotEmpty && visibleCards.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(
+                        child: Text('当前筛选没有匹配的卡片',
+                            style: TextStyle(color: Color(0xFF718CA5)))),
+                  ),
+                ...visibleCards.map((card) => _SimCardTile(
+                    card: card,
+                    onEdit: () => _edit(card),
+                    onDelete: () => _delete(card))),
+              ],
+            ),
     );
   }
 }
