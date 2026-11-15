@@ -249,6 +249,7 @@ class _SimHomePageState extends State<SimHomePage> {
   final _storage = SimStorage();
   List<SimCard> _cards = [];
   bool _loading = true;
+  String _filter = '全部';
 
   @override
   void initState() {
@@ -319,12 +320,48 @@ class _SimHomePageState extends State<SimHomePage> {
   Widget build(BuildContext context) {
     final countryCodes =
         _cards.map((card) => card.countryCode).toSet().toList();
+    final visibleCards = switch (_filter) {
+      '即将续费' =>
+        _cards.where((card) => card.status == SimStatus.renewing).toList(),
+      '已过期' =>
+        _cards.where((card) => card.status == SimStatus.expired).toList(),
+      'eSIM' => _cards.where((card) => card.type != SimType.physical).toList(),
+      _ => _cards,
+    };
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 72,
         backgroundColor: const Color(0xFF07090E),
-        title: const Text('SIMVault',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+        titleSpacing: 18,
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('SIMVAULT',
+                style:
+                    TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2.4)),
+            SizedBox(height: 3),
+            Text('WORLD CARD ATLAS  ·  LOCAL-FIRST',
+                style: TextStyle(
+                    color: Color(0xFF6F8BA4), fontSize: 9, letterSpacing: 1.1)),
+          ],
+        ),
         actions: [
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 19),
+            padding: const EdgeInsets.symmetric(horizontal: 9),
+            decoration: BoxDecoration(
+              color: const Color(0x1B53D2B0),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0x5553D2B0)),
+            ),
+            child: const Center(
+              child: Text('LOCAL',
+                  style: TextStyle(
+                      color: Color(0xFF66E6C6),
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ),
           IconButton(
               onPressed: _settings,
               icon: const Icon(Icons.settings_outlined),
@@ -341,15 +378,40 @@ class _SimHomePageState extends State<SimHomePage> {
           : _cards.isEmpty
               ? _EmptyState(onAdd: () => _edit())
               : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
                   children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.sensors,
+                            color: Color(0xFF64D9C3), size: 15),
+                        const SizedBox(width: 6),
+                        const Text('OMAPI READY',
+                            style: TextStyle(
+                                color: Color(0xFF6E9F9F),
+                                fontSize: 10,
+                                letterSpacing: 1.2)),
+                        const Spacer(),
+                        Text('${_cards.length} ACTIVE RECORDS',
+                            style: const TextStyle(
+                                color: Color(0xFF66819A),
+                                fontSize: 9,
+                                letterSpacing: 1)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
                     Container(
-                      height: 310,
+                      height: 350,
                       margin: const EdgeInsets.only(bottom: 16),
                       decoration: BoxDecoration(
                         color: const Color(0xFF0B111B),
-                        borderRadius: BorderRadius.circular(28),
-                        border: Border.all(color: const Color(0x263F82B8)),
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: const Color(0x3A3F82B8)),
+                        boxShadow: const [
+                          BoxShadow(
+                              color: Color(0x441A70A2),
+                              blurRadius: 28,
+                              spreadRadius: -12)
+                        ],
                       ),
                       child: Stack(
                         children: [
@@ -357,7 +419,7 @@ class _SimHomePageState extends State<SimHomePage> {
                             left: 18,
                             top: 16,
                             child: Text(
-                              'WORLD CARD ATLAS',
+                              'WORLD CARD ATLAS  /  LIVE TELEMETRY',
                               style: TextStyle(
                                 color: Color(0xFF9AB4D0),
                                 fontSize: 12,
@@ -366,6 +428,15 @@ class _SimHomePageState extends State<SimHomePage> {
                               ),
                             ),
                           ),
+                          const Positioned(
+                            right: 18,
+                            top: 16,
+                            child: Text('DRAG · ZOOM · TAP NODE',
+                                style: TextStyle(
+                                    color: Color(0xFF5C7890),
+                                    fontSize: 9,
+                                    letterSpacing: 1)),
+                          ),
                           AtlasGlobe(
                             countryCodes: countryCodes,
                             onCountrySelected: (code) {
@@ -373,17 +444,6 @@ class _SimHomePageState extends State<SimHomePage> {
                                 SnackBar(content: Text('已聚焦 $code 地区')),
                               );
                             },
-                          ),
-                          Positioned(
-                            right: 16,
-                            bottom: 14,
-                            child: Text(
-                              '拖拽旋转 · 双指缩放',
-                              style: TextStyle(
-                                color: Colors.blueGrey.shade300,
-                                fontSize: 11,
-                              ),
-                            ),
                           ),
                         ],
                       ),
@@ -407,17 +467,56 @@ class _SimHomePageState extends State<SimHomePage> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    Text(
-                      'MY COLLECTION · ${_cards.length} 张卡片',
-                      style: const TextStyle(
-                        color: Color(0xFF9AB4D0),
-                        fontSize: 12,
-                        letterSpacing: 1.3,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    _RadarPanel(cards: _cards),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        const Text(
+                          'MY COLLECTION',
+                          style: TextStyle(
+                            color: Color(0xFF9AB4D0),
+                            fontSize: 12,
+                            letterSpacing: 1.3,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text('${visibleCards.length} / ${_cards.length}',
+                            style: const TextStyle(
+                                color: Color(0xFF66819A), fontSize: 10)),
+                      ],
                     ),
                     const SizedBox(height: 12),
-                    ..._cards.map((card) => _SimCardTile(
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: ['全部', '即将续费', '已过期', 'eSIM']
+                          .map((item) => ChoiceChip(
+                                label: Text(item),
+                                selected: _filter == item,
+                                onSelected: (_) =>
+                                    setState(() => _filter = item),
+                                labelStyle: TextStyle(
+                                    color: _filter == item
+                                        ? const Color(0xFF07111A)
+                                        : const Color(0xFF86A5BC),
+                                    fontSize: 11),
+                                selectedColor: const Color(0xFF8FD8FF),
+                                backgroundColor: const Color(0xFF101A26),
+                                side:
+                                    const BorderSide(color: Color(0x334A789B)),
+                              ))
+                          .toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    if (visibleCards.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(
+                            child: Text('当前筛选没有匹配的卡片',
+                                style: TextStyle(color: Color(0xFF718CA5)))),
+                      ),
+                    ...visibleCards.map((card) => _SimCardTile(
                         card: card,
                         onEdit: () => _edit(card),
                         onDelete: () => _delete(card))),
@@ -470,6 +569,88 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
+class _RadarPanel extends StatelessWidget {
+  const _RadarPanel({required this.cards});
+
+  final List<SimCard> cards;
+
+  @override
+  Widget build(BuildContext context) {
+    final urgent = cards
+        .where((card) => card.status != SimStatus.normal)
+        .toList()
+      ..sort((a, b) => a.nextRenewalDate.compareTo(b.nextRenewalDate));
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B121C),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0x334A789B)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.radar, color: Color(0xFFFFB45C), size: 18),
+              const SizedBox(width: 8),
+              const Text('KEEP-ALIVE RADAR',
+                  style: TextStyle(
+                      color: Color(0xFFF0C889),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2)),
+              const Spacer(),
+              Text('${urgent.length} ALERTS',
+                  style: const TextStyle(
+                      color: Color(0xFFB78865), fontSize: 9, letterSpacing: 1)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (urgent.isEmpty)
+            const Text('所有卡片都在安全窗口内',
+                style: TextStyle(color: Color(0xFF718CA5), fontSize: 12))
+          else
+            ...urgent.take(3).map(
+                  (card) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: card.status == SimStatus.expired
+                                    ? const Color(0xFFFF6378)
+                                    : const Color(0xFFFFB45C))),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(card.nickname,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Color(0xFFB9C9D8), fontSize: 12)),
+                        ),
+                        Text(
+                            card.status == SimStatus.expired
+                                ? 'EXPIRED'
+                                : 'RENEW ${_date(card.nextRenewalDate)}',
+                            style: TextStyle(
+                                color: card.status == SimStatus.expired
+                                    ? const Color(0xFFFF6378)
+                                    : const Color(0xFFFFB45C),
+                                fontSize: 9,
+                                letterSpacing: .5)),
+                      ],
+                    ),
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.onAdd});
   final VoidCallback onAdd;
@@ -515,6 +696,10 @@ class _SimCardTile extends StatelessWidget {
       SimStatus.expired => ('已过期', Colors.red),
     };
     return Card(
+      color: const Color(0xFF0D141F),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(17),
+          side: const BorderSide(color: Color(0x2F4A789B))),
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -523,9 +708,12 @@ class _SimCardTile extends StatelessWidget {
           children: [
             Row(children: [
               CircleAvatar(
-                  child: Icon(card.type == SimType.esim
-                      ? Icons.contactless
-                      : Icons.sim_card)),
+                  backgroundColor: const Color(0xFF17334A),
+                  child: Icon(
+                      card.type == SimType.esim
+                          ? Icons.contactless
+                          : Icons.sim_card,
+                      color: const Color(0xFF8FD8FF))),
               const SizedBox(width: 12),
               Expanded(
                   child: Column(
@@ -534,11 +722,14 @@ class _SimCardTile extends StatelessWidget {
                     Text(card.nickname,
                         style: const TextStyle(
                             fontSize: 17, fontWeight: FontWeight.bold)),
-                    Text('${card.operatorName} · ${switch (card.type) {
-                      SimType.physical => '实体 SIM',
-                      SimType.esim => 'eSIM',
-                      SimType.programmable => '可编程 eSIM',
-                    }}'),
+                    Text(
+                        '${card.operatorName} · ${switch (card.type) {
+                          SimType.physical => '实体 SIM',
+                          SimType.esim => 'eSIM',
+                          SimType.programmable => '可编程 eSIM',
+                        }} · ${card.countryCode}',
+                        style: const TextStyle(
+                            color: Color(0xFF7892A8), fontSize: 12)),
                   ])),
               PopupMenuButton<String>(
                 onSelected: (value) => value == 'edit' ? onEdit() : onDelete(),
@@ -551,10 +742,17 @@ class _SimCardTile extends StatelessWidget {
             const Divider(height: 24),
             Wrap(spacing: 8, runSpacing: 8, children: [
               Chip(
+                  side: BorderSide.none,
+                  backgroundColor: status.$2.withOpacity(.14),
                   label: Text(status.$1),
                   avatar: Icon(Icons.circle, size: 10, color: status.$2)),
-              Chip(label: Text(card.planName)),
               Chip(
+                  side: BorderSide.none,
+                  backgroundColor: const Color(0xFF162333),
+                  label: Text(card.planName)),
+              Chip(
+                  side: BorderSide.none,
+                  backgroundColor: const Color(0xFF162333),
                   label: Text(
                       '¥${card.monthlyFee.toStringAsFixed(2)}/${card.renewalCycle}')),
             ]),
