@@ -30,6 +30,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { cardDb, seedCards, type SimCard } from './db'
+import { GlobeAtlas } from './GlobeAtlas'
 import './index.css'
 
 const money = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', maximumFractionDigits: 0 })
@@ -37,6 +38,7 @@ const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numer
 
 const countryFlags: Record<string, string> = { CN: '🇨🇳', GB: '🇬🇧', HK: '🇭🇰', US: '🇺🇸', JP: '🇯🇵' }
 const tagIcons: Record<string, string> = { Telegram: '✈️', 'Google': 'G', 'Apple ID (UK)': '', 银行卡: '▣' }
+const countryNames: Record<string, string> = { CN: '中国', GB: '英国', HK: '中国香港', US: '美国', JP: '日本' }
 
 function daysUntil(date: string) {
   return Math.ceil((new Date(date).getTime() - Date.now()) / 86400000)
@@ -90,6 +92,9 @@ function App() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<SimCard | null>(null)
   const [notice, setNotice] = useState('')
+  const [globeCountry, setGlobeCountry] = useState('all')
+  const [globePaused, setGlobePaused] = useState(false)
+  const [globeFilter, setGlobeFilter] = useState<'all' | 'Physical' | 'eSIM' | 'Programmable_eSIM'>('all')
 
   useEffect(() => {
     cardDb.cards.toArray().then(async (stored) => {
@@ -141,18 +146,29 @@ function App() {
     setTimeout(() => setNotice(''), 2600)
   }
 
-  const exportJson = () => {
+  const exportJson = (redact = false) => {
+    const payload = redact
+      ? cards.map((card) => ({ ...card, iccid: '', pin1: '', puk1: '', esimLpaCode: '' }))
+      : cards
     const link = document.createElement('a')
-    link.href = URL.createObjectURL(new Blob([JSON.stringify(cards, null, 2)], { type: 'application/json' }))
-    link.download = 'simvault-backup.json'
+    link.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
+    link.download = redact ? 'simvault-safe-backup.json' : 'simvault-backup.json'
     link.click()
     URL.revokeObjectURL(link.href)
+    setNotice(redact ? '已导出脱敏备份，敏感字段已清空' : '已导出完整 JSON 备份')
+    setTimeout(() => setNotice(''), 2600)
   }
 
   const countries = [...new Set(cards.map((card) => card.countryCode))]
   const dangerCount = cards.filter((card) => daysUntil(card.nextDeadlineDate) < 30).length
   const physicalCount = cards.filter((card) => card.cardType === 'Physical').length
   const costPerMonth = cards.reduce((sum, card) => sum + (card.currency === 'CNY' ? card.cycleCost / (card.billingCycle === 'Yearly' ? 12 : 1) : card.cnyMonthlyEstimate), 0)
+  const mapCards = globeFilter === 'all' ? cards : cards.filter((card) => card.cardType === globeFilter)
+  const mapCountries = [...new Set(mapCards.map((card) => card.countryCode))]
+  const globeCards = globeCountry === 'all' ? mapCards : mapCards.filter((card) => card.countryCode === globeCountry)
+  const [globeResetToken, setGlobeResetToken] = useState(0)
+  const radarCards = [...globeCards].sort((a, b) => daysUntil(a.nextDeadlineDate) - daysUntil(b.nextDeadlineDate))
+  const urgentRadarCount = radarCards.filter((card) => daysUntil(card.nextDeadlineDate) <= 7).length
 
   return (
     <div className="app-shell">
@@ -163,8 +179,9 @@ function App() {
         </div>
         <div className="top-actions">
           <label className="import-button"><ArrowDownToLine size={16} /> 导入备份<input type="file" accept=".json" onChange={(event) => event.target.files?.[0] && importJson(event.target.files[0])} /></label>
-          <button className="ghost-button" onClick={exportJson}><ArrowUpFromLine size={16} /> 导出 JSON</button>
-          <button className="icon-button"><Settings2 size={18} /></button>
+          <button className="ghost-button" onClick={() => exportJson()}><ArrowUpFromLine size={16} /> 导出 JSON</button>
+          <button className="ghost-button safe-export" onClick={() => exportJson(true)}><ShieldCheck size={16} /> 脱敏导出</button>
+          <button className="icon-button" aria-label="设置" onClick={() => { setNotice('设置中心即将开放'); setTimeout(() => setNotice(''), 2600) }}><Settings2 size={18} /></button>
           <div className="avatar">SC</div>
         </div>
       </header>
@@ -177,6 +194,41 @@ function App() {
             <p className="hero-copy">记录每一张卡的故事、位置和保号节奏。数据只保存在你的设备里。</p>
           </div>
           <button className="primary-button" onClick={() => { setEditing(null); setShowForm(true) }}><Plus size={18} /> 收入新卡</button>
+        </section>
+
+        <section className="globe-panel">
+          <div className="globe-toolbar">
+            <div className="globe-brand"><span className="globe-brand-mark"><Globe2 size={16} /></span><strong>WORLD CARD ATLAS</strong><small>{mapCards.length} 张卡 · {mapCountries.length} 个地区</small></div>
+            <div className="globe-pills">
+              {([['all', '全部卡片'], ['Physical', '实体 SIM'], ['eSIM', 'eSIM'], ['Programmable_eSIM', '可编程']] as const).map(([value, label]) => <button key={value} className={globeFilter === value ? 'active' : ''} onClick={() => { setGlobeFilter(value); setGlobeCountry('all') }}>{label}</button>)}
+            </div>
+            <div className="globe-toolbar-actions">
+              <button onClick={() => setGlobePaused((value) => !value)}>{globePaused ? '继续自转' : '暂停自转'}</button>
+              <button onClick={() => setGlobeResetToken((value) => value + 1)}>复位视角</button>
+            </div>
+          </div>
+          <GlobeAtlas
+            key={globeResetToken}
+            cards={mapCards}
+            paused={globePaused}
+            focusCountry={globeCountry === 'all' ? null : globeCountry}
+            onSelectCountry={(code) => { const next = globeCountry === code ? 'all' : code; setGlobeCountry(next); setCountry(next) }}
+          />
+          <div className="globe-insight">
+            <p className="eyebrow"><ShieldCheck size={14} /> 7 DAY KEEP-ALIVE RADAR · {urgentRadarCount} URGENT</p>
+            <h2>{globeCountry === 'all' ? '你的卡，正在世界各地待命。' : `${countryFlags[globeCountry]} ${countryNames[globeCountry]} · ${globeCards.length} 张卡`}</h2>
+            <p className="globe-copy">把“卡放在哪里、服务谁、什么时候需要保号”放回全球空间里管理。按死线优先级排列，先处理最接近到期的卡。</p>
+            <div className="globe-list">
+              {radarCards.slice(0, 3).map((card) => {
+                const status = statusFor(card)
+                const priority = status.color === 'danger' ? 'P1' : status.color === 'warning' ? 'P2' : 'OK'
+                return <button key={card.id} className="globe-list-item" onClick={() => { setQuery(card.carrierName); document.querySelector('.collection-section')?.scrollIntoView({ behavior: 'smooth' }) }}>
+                  <span className="globe-list-flag">{countryFlags[card.countryCode]}</span><span><b>{card.carrierName}</b><small>{card.hostName} · {status.label}</small></span><span className={`priority-badge ${status.color}`}>{priority}</span><i className={`dot ${status.color}`} />
+                </button>
+              })}
+            </div>
+            <button className="globe-reset" onClick={() => { setGlobeCountry('all'); setCountry('all') }}>查看完整轨道 <ChevronDown size={14} /></button>
+          </div>
         </section>
 
         <section className="stats-grid">
@@ -203,7 +255,7 @@ function App() {
           </div>
         </section>
 
-        <div className="section-heading"><div><p className="eyebrow">MY COLLECTION</p><h2>{view === 'gallery' ? '卡片画廊' : '高密度卡片表格'} <span>{filtered.length}</span></h2></div><div className="legend"><span><i className="dot safe" /> 安全</span><span><i className="dot warning" /> 关注</span><span><i className="dot danger" /> 紧急</span></div></div>
+        <div className="section-heading collection-section"><div><p className="eyebrow">MY COLLECTION</p><h2>{view === 'gallery' ? '卡片画廊' : '高密度卡片表格'} <span>{filtered.length}</span></h2></div><div className="legend"><span><i className="dot safe" /> 安全</span><span><i className="dot warning" /> 关注</span><span><i className="dot danger" /> 紧急</span></div></div>
 
         <AnimatePresence mode="popLayout">
           {view === 'gallery' ? (
