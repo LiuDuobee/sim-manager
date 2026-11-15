@@ -35,9 +35,13 @@ class SimManagerApp extends StatelessWidget {
   }
 }
 
-enum SimType { physical, esim }
+enum SimType { physical, esim, programmable }
 
 enum SimStatus { normal, renewing, expired }
+
+enum LocationType { device, smartCard, binder }
+
+enum BillingCycle { monthly, yearly, payGo }
 
 class SimCard {
   const SimCard({
@@ -52,6 +56,26 @@ class SimCard {
     required this.expiryDate,
     this.phoneNumber = '',
     this.countryCode = 'CN',
+    this.themeColor = 'ocean',
+    this.locationType = LocationType.device,
+    this.hostName = '',
+    this.slotDetail = '',
+    this.isActive = false,
+    this.balance = 0,
+    this.currency = 'CNY',
+    this.billingCycle = BillingCycle.monthly,
+    this.cycleCost = 0,
+    this.cnyMonthlyEstimate = 0,
+    this.keepAliveCycleDays = 180,
+    this.keepAliveAction = '',
+    this.lastKeepAliveDate,
+    this.nextDeadlineDate,
+    this.keepAliveLog = const [],
+    this.iccid = '',
+    this.pin1 = '',
+    this.puk1 = '',
+    this.esimLpaCode = '',
+    this.boundServices = const [],
     this.notes = '',
   });
 
@@ -59,6 +83,26 @@ class SimCard {
   final String nickname;
   final String phoneNumber;
   final String countryCode;
+  final String themeColor;
+  final LocationType locationType;
+  final String hostName;
+  final String slotDetail;
+  final bool isActive;
+  final double balance;
+  final String currency;
+  final BillingCycle billingCycle;
+  final double cycleCost;
+  final double cnyMonthlyEstimate;
+  final int keepAliveCycleDays;
+  final String keepAliveAction;
+  final DateTime? lastKeepAliveDate;
+  final DateTime? nextDeadlineDate;
+  final List<String> keepAliveLog;
+  final String iccid;
+  final String pin1;
+  final String puk1;
+  final String esimLpaCode;
+  final List<String> boundServices;
   final String operatorName;
   final SimType type;
   final String notes;
@@ -70,8 +114,11 @@ class SimCard {
 
   SimStatus get status {
     final now = DateTime.now();
-    if (expiryDate.isBefore(now)) return SimStatus.expired;
-    if (nextRenewalDate.difference(now).inDays <= 7) {
+    final deadline = nextDeadlineDate ?? nextRenewalDate;
+    if (expiryDate.isBefore(now) || deadline.isBefore(now)) {
+      return SimStatus.expired;
+    }
+    if (deadline.difference(now).inDays <= 7) {
       return SimStatus.renewing;
     }
     return SimStatus.normal;
@@ -82,6 +129,26 @@ class SimCard {
         'nickname': nickname,
         'phoneNumber': phoneNumber,
         'countryCode': countryCode,
+        'themeColor': themeColor,
+        'locationType': locationType.name,
+        'hostName': hostName,
+        'slotDetail': slotDetail,
+        'isActive': isActive,
+        'balance': balance,
+        'currency': currency,
+        'billingCycle': billingCycle.name,
+        'cycleCost': cycleCost,
+        'cnyMonthlyEstimate': cnyMonthlyEstimate,
+        'keepAliveCycleDays': keepAliveCycleDays,
+        'keepAliveAction': keepAliveAction,
+        'lastKeepAliveDate': lastKeepAliveDate?.toIso8601String(),
+        'nextDeadlineDate': nextDeadlineDate?.toIso8601String(),
+        'keepAliveLog': keepAliveLog,
+        'iccid': iccid,
+        'pin1': pin1,
+        'puk1': puk1,
+        'esimLpaCode': esimLpaCode,
+        'boundServices': boundServices,
         'operatorName': operatorName,
         'type': type.name,
         'notes': notes,
@@ -97,6 +164,33 @@ class SimCard {
         nickname: json['nickname'] as String,
         phoneNumber: json['phoneNumber'] as String? ?? '',
         countryCode: (json['countryCode'] as String? ?? 'CN').toUpperCase(),
+        themeColor: json['themeColor'] as String? ?? 'ocean',
+        locationType: _locationType(json['locationType']),
+        hostName: json['hostName'] as String? ?? '',
+        slotDetail: json['slotDetail'] as String? ?? '',
+        isActive: json['isActive'] as bool? ?? false,
+        balance: (json['balance'] as num?)?.toDouble() ?? 0,
+        currency: json['currency'] as String? ?? 'CNY',
+        billingCycle: _billingCycle(json['billingCycle']),
+        cycleCost: (json['cycleCost'] as num?)?.toDouble() ??
+            (json['monthlyFee'] as num?)?.toDouble() ??
+            0,
+        cnyMonthlyEstimate:
+            (json['cnyMonthlyEstimate'] as num?)?.toDouble() ?? 0,
+        keepAliveCycleDays: json['keepAliveCycleDays'] as int? ?? 180,
+        keepAliveAction: json['keepAliveAction'] as String? ?? '',
+        lastKeepAliveDate: _dateTime(json['lastKeepAliveDate']),
+        nextDeadlineDate: _dateTime(json['nextDeadlineDate']),
+        keepAliveLog:
+            (json['keepAliveLog'] as List?)?.whereType<String>().toList() ??
+                const [],
+        iccid: json['iccid'] as String? ?? '',
+        pin1: json['pin1'] as String? ?? '',
+        puk1: json['puk1'] as String? ?? '',
+        esimLpaCode: json['esimLpaCode'] as String? ?? '',
+        boundServices:
+            (json['boundServices'] as List?)?.whereType<String>().toList() ??
+                const [],
         operatorName: json['operatorName'] as String,
         type: SimType.values.byName(json['type'] as String),
         notes: json['notes'] as String? ?? '',
@@ -107,6 +201,19 @@ class SimCard {
         expiryDate: DateTime.parse(json['expiryDate'] as String),
       );
 }
+
+LocationType _locationType(Object? value) => LocationType.values.firstWhere(
+      (item) => item.name == value,
+      orElse: () => LocationType.device,
+    );
+
+BillingCycle _billingCycle(Object? value) => BillingCycle.values.firstWhere(
+      (item) => item.name == value,
+      orElse: () => BillingCycle.monthly,
+    );
+
+DateTime? _dateTime(Object? value) =>
+    value is String && value.isNotEmpty ? DateTime.tryParse(value) : null;
 
 class SimStorage {
   static const _key = 'sim_cards';
@@ -427,8 +534,11 @@ class _SimCardTile extends StatelessWidget {
                     Text(card.nickname,
                         style: const TextStyle(
                             fontSize: 17, fontWeight: FontWeight.bold)),
-                    Text(
-                        '${card.operatorName} · ${card.type == SimType.esim ? 'eSIM' : '实体 SIM'}'),
+                    Text('${card.operatorName} · ${switch (card.type) {
+                      SimType.physical => '实体 SIM',
+                      SimType.esim => 'eSIM',
+                      SimType.programmable => '可编程 eSIM',
+                    }}'),
                   ])),
               PopupMenuButton<String>(
                 onSelected: (value) => value == 'edit' ? onEdit() : onDelete(),
@@ -605,6 +715,8 @@ class _SimFormPageState extends State<SimFormPage> {
                   DropdownMenuItem(
                       value: SimType.physical, child: Text('实体 SIM')),
                   DropdownMenuItem(value: SimType.esim, child: Text('eSIM')),
+                  DropdownMenuItem(
+                      value: SimType.programmable, child: Text('可编程 eSIM')),
                 ],
                 onChanged: (value) => setState(() => _type = value!),
               ),
