@@ -1,7 +1,7 @@
 name: sim_manager
 description: SIM 卡管理工具 MVP
 publish_to: "none"
-version: 1.0.0+1
+version: 3.0.0+4
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

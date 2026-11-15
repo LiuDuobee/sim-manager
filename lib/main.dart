@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'features/atlas_globe.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const SimManagerApp());
@@ -18,9 +20,12 @@ class SimManagerApp extends StatelessWidget {
       title: 'SIM 卡管理',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2563EB)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF5CAEFF),
+          brightness: Brightness.dark,
+        ),
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF7F8FC),
+        scaffoldBackgroundColor: const Color(0xFF07090E),
         inputDecorationTheme: const InputDecorationTheme(
           border: OutlineInputBorder(),
         ),
@@ -46,12 +51,14 @@ class SimCard {
     required this.nextRenewalDate,
     required this.expiryDate,
     this.phoneNumber = '',
+    this.countryCode = 'CN',
     this.notes = '',
   });
 
   final String id;
   final String nickname;
   final String phoneNumber;
+  final String countryCode;
   final String operatorName;
   final SimType type;
   final String notes;
@@ -74,6 +81,7 @@ class SimCard {
         'id': id,
         'nickname': nickname,
         'phoneNumber': phoneNumber,
+        'countryCode': countryCode,
         'operatorName': operatorName,
         'type': type.name,
         'notes': notes,
@@ -88,6 +96,7 @@ class SimCard {
         id: json['id'] as String,
         nickname: json['nickname'] as String,
         phoneNumber: json['phoneNumber'] as String? ?? '',
+        countryCode: (json['countryCode'] as String? ?? 'CN').toUpperCase(),
         operatorName: json['operatorName'] as String,
         type: SimType.values.byName(json['type'] as String),
         notes: json['notes'] as String? ?? '',
@@ -142,9 +151,10 @@ class _SimHomePageState extends State<SimHomePage> {
 
   Future<void> _load() async {
     final cards = await _storage.load();
-    if (mounted)
+    if (mounted) {
       setState(() =>
           _cards = cards..sort((a, b) => a.expiryDate.compareTo(b.expiryDate)));
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -200,9 +210,12 @@ class _SimHomePageState extends State<SimHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final countryCodes =
+        _cards.map((card) => card.countryCode).toSet().toList();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('SIM 卡管理',
+        backgroundColor: const Color(0xFF07090E),
+        title: const Text('SIMVault',
             style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
@@ -223,8 +236,79 @@ class _SimHomePageState extends State<SimHomePage> {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
                   children: [
-                    Text('${_cards.length} 张卡片',
-                        style: Theme.of(context).textTheme.titleMedium),
+                    Container(
+                      height: 310,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0B111B),
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(color: const Color(0x263F82B8)),
+                      ),
+                      child: Stack(
+                        children: [
+                          const Positioned(
+                            left: 18,
+                            top: 16,
+                            child: Text(
+                              'WORLD CARD ATLAS',
+                              style: TextStyle(
+                                color: Color(0xFF9AB4D0),
+                                fontSize: 12,
+                                letterSpacing: 1.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          AtlasGlobe(
+                            countryCodes: countryCodes,
+                            onCountrySelected: (code) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('已聚焦 $code 地区')),
+                              );
+                            },
+                          ),
+                          Positioned(
+                            right: 16,
+                            bottom: 14,
+                            child: Text(
+                              '拖拽旋转 · 双指缩放',
+                              style: TextStyle(
+                                color: Colors.blueGrey.shade300,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        _MetricCard(label: '藏卡总数', value: '${_cards.length}'),
+                        const SizedBox(width: 8),
+                        _MetricCard(
+                          label: '需关注',
+                          value:
+                              '${_cards.where((card) => card.status != SimStatus.normal).length}',
+                          accent: const Color(0xFFFFB45C),
+                        ),
+                        const SizedBox(width: 8),
+                        _MetricCard(
+                          label: '地区',
+                          value: '${countryCodes.length}',
+                          accent: const Color(0xFF67D5C2),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'MY COLLECTION · ${_cards.length} 张卡片',
+                      style: const TextStyle(
+                        color: Color(0xFF9AB4D0),
+                        fontSize: 12,
+                        letterSpacing: 1.3,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     ..._cards.map((card) => _SimCardTile(
                         card: card,
@@ -232,6 +316,49 @@ class _SimHomePageState extends State<SimHomePage> {
                         onDelete: () => _delete(card))),
                   ],
                 ),
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    this.accent = const Color(0xFF7AB8FF),
+  });
+
+  final String label;
+  final String value;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D141F),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0x1F8DB7DE)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: const TextStyle(color: Color(0xFF8A9DB4), fontSize: 11)),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: TextStyle(
+                color: accent,
+                fontSize: 25,
+                fontWeight: FontWeight.w800,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -346,6 +473,7 @@ class _SimFormPageState extends State<SimFormPage> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nickname;
   late final TextEditingController _phone;
+  late final TextEditingController _countryCode;
   late final TextEditingController _operator;
   late final TextEditingController _notes;
   late final TextEditingController _plan;
@@ -361,6 +489,7 @@ class _SimFormPageState extends State<SimFormPage> {
     final c = widget.initial;
     _nickname = TextEditingController(text: c?.nickname ?? '');
     _phone = TextEditingController(text: c?.phoneNumber ?? '');
+    _countryCode = TextEditingController(text: c?.countryCode ?? 'CN');
     _operator = TextEditingController(text: c?.operatorName ?? '');
     _notes = TextEditingController(text: c?.notes ?? '');
     _plan = TextEditingController(text: c?.planName ?? '');
@@ -378,6 +507,7 @@ class _SimFormPageState extends State<SimFormPage> {
     for (final controller in [
       _nickname,
       _phone,
+      _countryCode,
       _operator,
       _notes,
       _plan,
@@ -419,6 +549,7 @@ class _SimFormPageState extends State<SimFormPage> {
             DateTime.now().microsecondsSinceEpoch.toString(),
         nickname: _nickname.text.trim(),
         phoneNumber: _phone.text.trim(),
+        countryCode: _countryCode.text.trim().toUpperCase(),
         operatorName: _operator.text.trim(),
         type: _type,
         notes: _notes.text.trim(),
@@ -453,12 +584,22 @@ class _SimFormPageState extends State<SimFormPage> {
                   decoration: const InputDecoration(labelText: '手机号（可选）')),
               const SizedBox(height: 12),
               TextFormField(
+                  controller: _countryCode,
+                  textCapitalization: TextCapitalization.characters,
+                  maxLength: 2,
+                  decoration: const InputDecoration(labelText: '国家代码（如 CN）'),
+                  validator: (value) =>
+                      value == null || value.trim().length != 2
+                          ? '请输入 2 位国家代码'
+                          : null),
+              const SizedBox(height: 12),
+              TextFormField(
                   controller: _operator,
                   decoration: const InputDecoration(labelText: '运营商 *'),
                   validator: _required),
               const SizedBox(height: 12),
               DropdownButtonFormField<SimType>(
-                value: _type,
+                initialValue: _type,
                 decoration: const InputDecoration(labelText: '卡类型'),
                 items: const [
                   DropdownMenuItem(
@@ -489,7 +630,7 @@ class _SimFormPageState extends State<SimFormPage> {
                   validator: _required),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _cycle,
+                initialValue: _cycle,
                 decoration: const InputDecoration(labelText: '续费周期'),
                 items: const ['月', '季度', '半年', '年']
                     .map((e) => DropdownMenuItem(value: e, child: Text(e)))
@@ -566,13 +707,15 @@ class _BackupPageState extends State<BackupPage> {
           .map((item) => SimCard.fromJson(item as Map<String, dynamic>))
           .toList();
       await widget.onImport(list);
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('导入成功')));
+      }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('JSON 格式无效，请检查备份内容')));
+      }
     }
   }
 
