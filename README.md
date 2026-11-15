@@ -4,6 +4,8 @@
 
 仓库根目录的 Flutter 工程是正式移动端应用；`simvault/` 是此前生成的 Web/Capacitor 实验原型，不作为 Flutter APK 的实现来源。
 
+`android-native/` 是路线 C 的 Kotlin + Jetpack Compose 原生 Android 工程，当前版本为 v3.1.0，使用 MVI 和 Standard / Shizuku / APDU 能力策略接口。
+
 ## 运行
 
 ```bash
