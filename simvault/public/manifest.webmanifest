@@ -1,0 +1,10 @@
+{
+  "name": "SIMVault",
+  "short_name": "SIMVault",
+  "description": "全球手机卡收藏者的本地数字卡册",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#5669df",
+  "icons": []
+}
