@@ -19,26 +19,23 @@ class SimRepository {
   /// Errors for the records quarantined by the last [load].
   List<String> lastLoadErrors = const [];
 
+  /// Rejected records that still have to reach [rejectedKey]. [save] writes
+  /// them first and refuses to touch the vault until that succeeds, so a
+  /// failed quarantine can never let a later save drop them.
+  List<Object?> _pendingQuarantine = const [];
+
   Future<List<SimCard>> load() async {
     final prefs = await SharedPreferences.getInstance();
     lastLoadErrors = const [];
     final raw = prefs.getString(storageKey);
-    if (raw != null) {
-      try {
-        return await _validated(prefs, raw);
-      } on Object {
-        // Corrupt payload: fall through to legacy / seed data.
-      }
-    }
+    final current = raw == null ? null : _decode(raw);
+    if (current != null) return _accept(current);
     final legacy = prefs.getString(legacyKey);
-    if (legacy != null) {
-      try {
-        final migrated = await _validated(prefs, legacy);
-        await save(migrated);
-        return migrated;
-      } on Object {
-        // Ignore unreadable legacy data.
-      }
+    final migrated = legacy == null ? null : _decode(legacy);
+    if (migrated != null) {
+      final cards = await _accept(migrated);
+      if (migrated.rejected.isEmpty) await _trySave(cards);
+      return cards;
     }
     if (prefs.getBool(seededKey) ?? false) return [];
     final seeded = buildSeedCards(DateTime.now());
@@ -47,22 +44,54 @@ class SimRepository {
     return seeded;
   }
 
-  Future<List<SimCard>> _validated(SharedPreferences prefs, String raw) async {
-    final result = SimCard.decodeListPartial(raw);
+  /// Null when the payload itself is unreadable (corrupt JSON / wrong shape).
+  static ({List<SimCard> cards, List<Object?> rejected, List<String> errors})?
+      _decode(String raw) {
+    try {
+      return SimCard.decodeListPartial(raw);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<List<SimCard>> _accept(
+      ({
+        List<SimCard> cards,
+        List<Object?> rejected,
+        List<String> errors
+      }) result) async {
     if (result.rejected.isEmpty) return result.cards;
-    final previous = prefs.getString(rejectedKey);
-    final quarantine = [
-      if (previous != null) ...(jsonDecode(previous) as List),
-      ...result.rejected,
-    ];
-    await prefs.setString(rejectedKey, jsonEncode(quarantine));
-    await save(result.cards);
     lastLoadErrors = result.errors;
+    _pendingQuarantine = result.rejected;
+    await _trySave(result.cards);
     return result.cards;
+  }
+
+  /// On failure the stored payload stays untouched; the next [save] retries.
+  Future<void> _trySave(List<SimCard> cards) async {
+    try {
+      await save(cards);
+    } on Object {
+      // Keep the original vault; nothing was overwritten.
+    }
+  }
+
+  Future<void> _flushQuarantine(SharedPreferences prefs) async {
+    if (_pendingQuarantine.isEmpty) return;
+    final previous = prefs.getString(rejectedKey);
+    final existing = previous == null ? const [] : jsonDecode(previous);
+    if (existing is! List) {
+      throw const FormatException('隔离区数据损坏，拒绝覆盖');
+    }
+    final ok = await prefs.setString(
+        rejectedKey, jsonEncode([...existing, ..._pendingQuarantine]));
+    if (!ok) throw StateError('隔离区写入失败');
+    _pendingQuarantine = const [];
   }
 
   Future<void> save(List<SimCard> cards) async {
     final prefs = await SharedPreferences.getInstance();
+    await _flushQuarantine(prefs);
     await prefs.setString(storageKey, SimCard.encodeList(cards));
   }
 }

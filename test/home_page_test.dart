@@ -167,6 +167,27 @@ void main() {
     expect((await SimRepository().load()).map((c) => c.id), ['ok']);
   });
 
+  test('failed quarantine leaves the stored vault untouched', () async {
+    final stored = jsonEncode([
+      {'id': 'ok', 'nextDeadlineDate': '2027-01-01'},
+      {'id': 'bad', 'cycleCost': -8, 'nextDeadlineDate': '2027-01-01'},
+    ]);
+    SharedPreferences.setMockInitialValues({
+      SimRepository.storageKey: stored,
+      SimRepository.rejectedKey: 'not json',
+      SimRepository.seededKey: true,
+    });
+    final repo = SimRepository();
+    final cards = await repo.load();
+    expect(cards.map((c) => c.id), ['ok']);
+    expect(repo.lastLoadErrors, hasLength(1));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(SimRepository.storageKey), stored);
+    await expectLater(repo.save(cards), throwsFormatException);
+    expect(prefs.getString(SimRepository.storageKey), stored);
+    expect(prefs.getString(SimRepository.rejectedKey), 'not json');
+  });
+
   testWidgets('home page reports quarantined cards', (tester) async {
     SharedPreferences.setMockInitialValues({
       SimRepository.storageKey: jsonEncode([

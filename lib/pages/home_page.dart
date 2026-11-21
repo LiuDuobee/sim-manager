@@ -92,7 +92,11 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _persist(List<SimCard> cards) async {
     setState(() => _cards = cards);
-    await _repo.save(cards);
+    try {
+      await _repo.save(cards);
+    } on Object catch (e) {
+      if (mounted) _toast('保存失败，本地数据未改动: $e');
+    }
   }
 
   void _toast(String msg) => ScaffoldMessenger.of(context)
