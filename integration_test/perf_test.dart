@@ -29,6 +29,13 @@ void main() {
       }
       // Cards: flip springs.
       final flip = find.byKey(const Key('flip-sim-cn-cmcc'));
+      // The home page is a lazy list: scroll until the card is built.
+      final pos =
+          tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      for (var i = 0; i < 20 && flip.evaluate().isEmpty; i++) {
+        pos.jumpTo(pos.pixels + 400);
+        await tester.pumpAndSettle();
+      }
       await tester.ensureVisible(flip);
       for (var f = 0; f < 20; f++) {
         await tester.pump(const Duration(milliseconds: 16));
