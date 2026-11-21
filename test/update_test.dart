@@ -55,6 +55,9 @@ class FakeHost implements UpdateHost {
   Future<String> getString(Uri uri) async => releaseJson();
 
   @override
+  Future<String> latestTagFromWeb() async => 'v3.4.0';
+
+  @override
   Future<List<String>> deviceAbis() async => abis;
 
   @override
@@ -205,6 +208,31 @@ void main() {
       expect(
           prefs.getInt(UpdateChecker.lastCheckKey), now.millisecondsSinceEpoch,
           reason: 'a failed attempt still counts for the day');
+    });
+
+    test('API failure falls back to the release-page redirect', () async {
+      final c = UpdateChecker(
+          fetch: (_) async => throw const UpdateHttpError(403, 'GitHub API'),
+          latestTagFallback: () async => 'v3.4.0',
+          currentVersion: () async => '3.3.0');
+      final r = await c.check();
+      expect(r.status, UpdateStatus.available);
+      expect(r.release!.htmlUrl,
+          'https://github.com/LiuDuobee/sim-manager/releases/tag/v3.4.0');
+      expect(
+          pickAsset(r.release!.assets, UpdatePlatform.android,
+                  abis: ['armeabi-v7a'])!
+              .url,
+          'https://github.com/LiuDuobee/sim-manager/releases/download/v3.4.0/SIMVault-v3.4.0-armeabi-v7a.apk');
+      expect(pickAsset(r.release!.assets, UpdatePlatform.windows)!.name,
+          'SIMVault-v3.4.0-windows-x64.zip');
+
+      final both = await UpdateChecker(
+          fetch: (_) async => throw const UpdateHttpError(403, 'GitHub API'),
+          latestTagFallback: () async => throw const SocketException('x'),
+          currentVersion: () async => '3.3.0').check();
+      expect(both.status, UpdateStatus.failed);
+      expect(both.error.toString(), contains('访问次数超限'));
     });
 
     test('manual check ignores throttle and "offered once"', () async {

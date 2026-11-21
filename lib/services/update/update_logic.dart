@@ -120,6 +120,27 @@ class ReleaseInfo {
     );
   }
 
+  /// A release known only by its tag (REST API unavailable): assets follow
+  /// the project's naming, notes are not available.
+  static ReleaseInfo conventional(String tag) {
+    final version = SemVer.tryParse(tag);
+    if (version == null) throw FormatException('无法识别的版本号: $tag');
+    const dl = 'https://github.com/$updateRepo/releases/download';
+    return ReleaseInfo(
+      tag: tag,
+      version: version,
+      htmlUrl: 'https://github.com/$updateRepo/releases/tag/$tag',
+      body: '（GitHub API 暂时不可用，未取到发布说明，可打开 Release 页查看）',
+      assets: [
+        for (final abi in const ['arm64-v8a', 'armeabi-v7a', 'x86_64'])
+          ReleaseAsset(
+              'SIMVault-$tag-$abi.apk', '$dl/$tag/SIMVault-$tag-$abi.apk', 0),
+        ReleaseAsset('SIMVault-$tag-windows-x64.zip',
+            '$dl/$tag/SIMVault-$tag-windows-x64.zip', 0),
+      ],
+    );
+  }
+
   /// The first lines of the release notes, Markdown markers stripped.
   String summary({int maxLines = 8, int maxChars = 400}) {
     final lines = body
@@ -188,10 +209,15 @@ class UpdateChecker {
   UpdateChecker({
     required this.fetch,
     required this.currentVersion,
+    this.latestTagFallback,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
   final Future<String> Function(Uri uri) fetch;
+
+  /// Resolves the latest release tag without the REST API (which allows 60
+  /// anonymous calls per hour per IP); used when the API call fails.
+  final Future<String> Function()? latestTagFallback;
   final Future<String> Function() currentVersion;
   final DateTime Function() _clock;
 
@@ -206,11 +232,24 @@ class UpdateChecker {
       current = await currentVersion();
       final mine = SemVer.tryParse(current);
       if (mine == null) throw FormatException('当前版本号无法识别: $current');
-      final json = jsonDecode(await fetch(latestReleaseApi));
-      if (json is! Map<String, dynamic>) {
-        throw const FormatException('Release 数据格式不对');
+      ReleaseInfo release;
+      try {
+        final json = jsonDecode(await fetch(latestReleaseApi));
+        if (json is! Map<String, dynamic>) {
+          throw const FormatException('Release 数据格式不对');
+        }
+        release = ReleaseInfo.fromJson(json);
+      } catch (apiError) {
+        final fallback = latestTagFallback;
+        if (fallback == null) rethrow;
+        final String tag;
+        try {
+          tag = await fallback();
+        } catch (_) {
+          throw apiError;
+        }
+        release = ReleaseInfo.conventional(tag);
       }
-      final release = ReleaseInfo.fromJson(json);
       // /releases/latest already skips these; never offer one regardless.
       if (release.draft || release.prerelease) {
         return UpdateCheckResult(UpdateStatus.upToDate, current);
@@ -247,6 +286,18 @@ class UpdateChecker {
       return null;
     }
   }
+}
+
+/// Non-200 HTTP response.
+class UpdateHttpError implements Exception {
+  const UpdateHttpError(this.status, this.what);
+
+  final int status;
+  final String what;
+
+  @override
+  String toString() => '$what 返回 HTTP $status'
+      '${status == 403 || status == 429 ? '（GitHub 访问次数超限，请稍后再试）' : status == 404 ? '（文件不存在）' : ''}';
 }
 
 /// Cancels an in-flight download.
@@ -291,6 +342,9 @@ abstract class UpdateHost {
   UpdatePlatform get platform;
 
   Future<String> getString(Uri uri);
+
+  /// Latest release tag from the github.com/…/releases/latest redirect.
+  Future<String> latestTagFromWeb();
 
   Future<List<String>> deviceAbis();
 

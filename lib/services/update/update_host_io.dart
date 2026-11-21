@@ -31,9 +31,32 @@ class PlatformUpdateHost implements UpdateHost {
       final res = await req.close();
       final body = await res.transform(utf8.decoder).join();
       if (res.statusCode != 200) {
-        throw HttpException('GitHub 返回 ${res.statusCode}', uri: uri);
+        throw UpdateHttpError(res.statusCode, 'GitHub API');
       }
       return body;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  @override
+  Future<String> latestTagFromWeb() async {
+    final client = _client();
+    try {
+      final req = await client.headUrl(Uri.parse(releasesPage));
+      req.followRedirects = false;
+      final res = await req.close();
+      await res.drain<void>();
+      final location = res.headers.value(HttpHeaders.locationHeader);
+      final segs = location == null
+          ? const <String>[]
+          : Uri.parse(location).pathSegments;
+      if (!res.isRedirect ||
+          segs.length < 2 ||
+          segs[segs.length - 2] != 'tag') {
+        throw UpdateHttpError(res.statusCode, 'GitHub Release 页');
+      }
+      return Uri.decodeComponent(segs.last);
     } finally {
       client.close(force: true);
     }
@@ -70,7 +93,7 @@ class PlatformUpdateHost implements UpdateHost {
     try {
       final res = await (await client.getUrl(Uri.parse(url))).close();
       if (res.statusCode != 200) {
-        throw HttpException('下载返回 ${res.statusCode}', uri: Uri.parse(url));
+        throw UpdateHttpError(res.statusCode, '下载');
       }
       final total = res.contentLength > 0 ? res.contentLength : null;
       final sink = part.openWrite();

@@ -13,6 +13,7 @@ class UpdateServices {
       host: host,
       checker: UpdateChecker(
         fetch: host.getString,
+        latestTagFallback: host.latestTagFromWeb,
         currentVersion: () async => (await PackageInfo.fromPlatform()).version,
       ),
     );

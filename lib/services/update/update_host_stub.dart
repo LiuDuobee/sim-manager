@@ -10,6 +10,10 @@ class PlatformUpdateHost implements UpdateHost {
       Future.error(UnsupportedError('当前平台不支持检查更新'));
 
   @override
+  Future<String> latestTagFromWeb() =>
+      Future.error(UnsupportedError('当前平台不支持检查更新'));
+
+  @override
   Future<List<String>> deviceAbis() async => const [];
 
   @override
