@@ -11,13 +11,68 @@
 - Flutter 原生 v3.0.0：<https://github.com/LiuDuobee/sim-manager/releases/tag/v3.0.0>
 - Android Compose 原生 v3.1.0：<https://github.com/LiuDuobee/sim-manager/releases/tag/v3.1.0>
 
-## 核心功能
+## 截图
 
-- 管理实体 SIM、原生 eSIM、可编程 eSIM
-- 记录运营商、国家、宿主设备、写卡器槽位和卡册位置
-- 保号死线、续费提醒、保号打卡和多币种成本
-- 本地 JSON 备份与导入，敏感字段支持脱敏导出
-- Flutter 深空 Atlas 舞台与 Android Compose HUD 原生版本
+| 桌面 · 深色 | 桌面 · 浅色 |
+|---|---|
+| ![](docs/screenshots/desktop-home-dark.png) | ![](docs/screenshots/desktop-home-light.png) |
+
+| 手机 · 地球（深色） | 手机 · Bento（深色） | 手机 · Bento（浅色） | 手机 · 卡库（浅色） |
+|---|---|---|---|
+| ![](docs/screenshots/phone-globe-dark.png) | ![](docs/screenshots/phone-bento-dark.png) | ![](docs/screenshots/phone-bento-light.png) | ![](docs/screenshots/phone-vault-light.png) |
+
+| 15 槽 eSTK 矩阵 | 出示号码 | 检查更新 | 新版本提示 |
+|---|---|---|---|
+| ![](docs/screenshots/phone-estk-light.png) | ![](docs/screenshots/phone-show-number.png) | ![](docs/screenshots/phone-check-update-dark.png) | ![](docs/screenshots/phone-update-dialog-dark.png) |
+
+## 功能（Flutter 主应用 v3.3.0）
+
+**World Card Atlas 本体**
+- 真实地理数据的 3D 正射地球：离线打包 world-atlas `countries-110m`，背面半球与节点剔除；拖拽旋转、自转、惯性滑行、点国家或快捷条飞到该国；滚轮/双指缩放 1.0x–2.0x，始终裁剪在 HUD 舞台内。
+- HUD 半舱：介质筛选（实体 SIM / eSIM / 5ber·eSTK）、国家聚焦、遥测读数。
+- 45° 切角 3D 翻转卡：正面运营商/号码/到期，背面 ICCID/保号规则/护照/操作。
+- 15 槽 eSTK 点阵矩阵：按可编程卡实际数量占用，点槽位看对应卡，槽位可起 Profile 昵称。
+- Bento 统计：最近死线、智能摘要、倒计时圆环、按币种汇总的年保号成本、120 天时间河。
+
+**卡片与保号**
+- 新增 / 编辑 / 归档（可恢复，归档里可彻底删除），删除与归档都有撤销条。
+- 保号规则：活跃度型 / 有效期型，续期按原到期日顺延或按操作当天重算；内置 7 个运营商预设（周期、类型、充值链接、预估年成本，可改）。
+- 保号打卡（5 秒内可撤销）、续费护照（打卡、充值、编辑全部留痕）。
+- 智能录入：扫卡托条码读 ICCID（安卓，拒绝相机权限时改手动输入）；粘贴充值短信自动识别金额和到期日，确认后才写入。
+- 出示号码：全屏大字号码 + 二维码。
+- 标签筛选；每张卡多个提醒偏移。
+- 费用字段禁止负数（表单与数据层双重校验，非法记录隔离保存）。
+
+**导出与设置**
+- 导出 ICS 日历：每张卡多条 VALARM，按动作区分「打卡」「去充值」文案。
+- JSON 备份导出 / 导入（旧版本备份可直接导入）。
+- 主题：浅色 / 深色 / 跟随系统（实时跟随）。
+- 隐私开关：ICS 里只显示号码尾号 4 位。
+- 自动更新：启动时每天最多检查一次 GitHub 最新正式 Release，同一版本只提示一次；设置页可手动「检查更新」。安卓按设备 ABI 下载对应 APK 并拉起系统安装器；Windows 下载 zip 解压到「下载」文件夹并打开，由你手动运行新版（不会静默替换当前程序）。
+
+**安卓手机布局**：窄屏单独的竖屏布局（地球 / 概览 / 卡库三段 + 底部导航坞）、单指拖拽、双指缩放、48dp 触控目标、沉浸式状态栏。
+
+## 安装
+
+**Windows**：从 [Releases](https://github.com/LiuDuobee/sim-manager/releases/latest) 下载 `SIMVault-v<版本>-windows-x64.zip`，解压后运行 `sim_manager.exe`。没有安装程序，删除文件夹即卸载。
+
+**Android**：下载与手机 CPU 对应的 APK 安装（需允许「安装未知应用」）：
+- `arm64-v8a`：近几年的绝大多数手机，不确定就选它
+- `armeabi-v7a`：较老的 32 位手机
+- `x86_64`：模拟器 / 部分平板
+
+以后可在 App 里直接更新。
+
+## 系统要求
+
+- Windows 10 / 11 64 位
+- Android 7.0（API 24）及以上
+
+## 数据与隐私
+
+- 所有卡片数据只保存在本机（`SharedPreferences`），没有账号、没有服务器、不上传任何卡片数据。
+- 唯一的联网请求是检查更新：访问 GitHub Releases 获取最新版本信息并下载安装包，不携带任何卡片数据。
+- 换机或重装前请用「JSON 备份」导出。安卓卸载 App 会清除 App 内数据和 App 目录里的备份文件，请用「复制 JSON」把备份存到 App 之外。
 
 ## 目录
 
@@ -34,8 +89,6 @@ flutter analyze
 flutter test
 flutter run
 ```
-
-当前备份功能通过设置页的 JSON 文本框完成导出/导入，不依赖文件系统插件，后续可将 `BackupService` 接入 `file_picker`、系统分享或云端同步。
 
 ## 许可证
 
