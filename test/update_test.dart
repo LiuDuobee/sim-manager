@@ -397,6 +397,20 @@ void main() {
       expect(find.textContaining('不会自动替换当前程序'), findsOneWidget);
     });
 
+    testWidgets('a missing asset (404) reads as "no package for this device"',
+        (tester) async {
+      final host = FakeHost(platform: UpdatePlatform.windows)
+        ..downloadError = const UpdateHttpError(404, '下载');
+      await pumpHome(tester, services(host));
+      await tester.tap(find.byKey(const Key('update-download')));
+      await frames(tester);
+      expect(
+          find.textContaining(
+              '没有适合本机的安装包（SIMVault-v3.4.0-windows-x64.zip 不存在）'),
+          findsOneWidget);
+      expect(find.byKey(const Key('update-open-page')), findsOneWidget);
+    });
+
     testWidgets('no matching APK offers the release page', (tester) async {
       final host = FakeHost(abis: ['mips']);
       await pumpHome(tester, services(host));

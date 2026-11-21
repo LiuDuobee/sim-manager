@@ -153,6 +153,10 @@ class _UpdateDownloadDialogState extends State<UpdateDownloadDialog> {
       }
     } on DownloadCancelled {
       if (mounted) Navigator.pop(context);
+    } on UpdateHttpError catch (e) {
+      _fail(e.status == 404
+          ? '这个版本没有适合本机的安装包（${_asset?.name} 不存在），请到 Release 页手动下载。'
+          : '下载失败：$e');
     } catch (e) {
       _fail('下载失败：$e');
     }
