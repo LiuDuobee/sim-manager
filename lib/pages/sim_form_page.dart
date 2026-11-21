@@ -53,8 +53,8 @@ class _SimFormPageState extends State<SimFormPage> {
           ? LocationType.smartCard
           : LocationType.device);
   late BillingCycle _billing = _init?.billingCycle ?? BillingCycle.monthly;
-  late DateTime _deadline = _init?.nextDeadlineDate ??
-      dateOnly(DateTime.now()).add(const Duration(days: 30));
+  late DateTime _deadline =
+      _init?.nextDeadlineDate ?? addDays(dateOnly(DateTime.now()), 30);
   late bool _active = _init?.isActive ?? true;
 
   bool get _slotEnabled =>

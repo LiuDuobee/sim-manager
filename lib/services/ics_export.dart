@@ -48,7 +48,7 @@ String buildIcsCalendar(List<SimCard> cards, {DateTime? now}) {
   ];
   for (final card in cards) {
     final start = dateOnly(card.nextDeadlineDate);
-    final end = start.add(const Duration(days: 1));
+    final end = addDays(start, 1);
     lines.addAll([
       'BEGIN:VEVENT',
       'UID:${card.id}-${_icsDate(start)}@simvault',

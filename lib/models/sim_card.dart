@@ -93,6 +93,10 @@ UrgencyTier urgencyTierFor(int days) {
 
 DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
+/// Calendar-day arithmetic that stays at local midnight across DST changes.
+DateTime addDays(DateTime d, int days) =>
+    DateTime(d.year, d.month, d.day + days);
+
 /// Whole calendar days from [now] to [deadline]; negative when overdue.
 int remainingDays(DateTime deadline, {DateTime? now}) {
   final from = dateOnly(now ?? DateTime.now());
@@ -195,7 +199,7 @@ class SimCard {
     final today = dateOnly(now ?? DateTime.now());
     return copyWith(
       lastKeepAliveDate: today,
-      nextDeadlineDate: today.add(Duration(days: keepAliveCycleDays)),
+      nextDeadlineDate: addDays(today, keepAliveCycleDays),
       keepAliveLog: [today, ...keepAliveLog].take(20).toList(),
     );
   }

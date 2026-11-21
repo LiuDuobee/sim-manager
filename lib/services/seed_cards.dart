@@ -4,10 +4,9 @@ import '../models/sim_card.dart';
 /// relative to [now] so urgency tiers stay meaningful.
 List<SimCard> buildSeedCards(DateTime now) {
   final today = dateOnly(now);
-  DateTime at(int days) => today.add(Duration(days: days));
+  DateTime at(int days) => addDays(today, days);
   SimCard card(SimCard c) => c.copyWith(
-      lastKeepAliveDate:
-          c.nextDeadlineDate.subtract(Duration(days: c.keepAliveCycleDays)));
+      lastKeepAliveDate: addDays(c.nextDeadlineDate, -c.keepAliveCycleDays));
   return [
     card(SimCard(
       id: 'sim-us-tmobile',
