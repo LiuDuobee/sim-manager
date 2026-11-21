@@ -1081,8 +1081,7 @@ List<String> describeEdit(SimCard a, SimCard b) => [
           a.puk1 != b.puk1 ||
           a.esimLpaCode != b.esimLpaCode)
         '卡背机密',
-      if (a.boundServices.join('\n') != b.boundServices.join('\n'))
-        '绑定服务',
+      if (a.boundServices.join('\n') != b.boundServices.join('\n')) '绑定服务',
       if (a.notes != b.notes) '备注',
     ];
 
