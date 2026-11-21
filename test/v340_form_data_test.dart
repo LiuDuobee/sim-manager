@@ -164,6 +164,21 @@ void main() {
         ['预付/上台', '保号规则开关', '用途类型', '来源平台', '总流量', '套餐有效期']);
   });
 
+  test('globe node ignores rule-less cards for urgency', () {
+    final overdue = SimCard(
+      id: 'p',
+      carrierName: 'csl',
+      phoneNumber: '',
+      countryCode: 'HK',
+      mediaType: MediaType.physical,
+      nextDeadlineDate: DateTime(2000),
+      planType: PlanType.postpaid,
+      keepAliveEnabled: false,
+    );
+    final node = buildGlobeNodes([overdue], const []).single;
+    expect(node.color, HudPalette.dark.tierColor(UrgencyTier.ok));
+  });
+
   group('accent stripe contrast', () {
     test('every region accent keeps ≥ 3:1 on card face and both themes', () {
       for (final r in [...allRegions, regionFor('ZZ')]) {

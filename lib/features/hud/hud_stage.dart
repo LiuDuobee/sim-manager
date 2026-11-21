@@ -25,8 +25,9 @@ List<GlobeNode> buildGlobeNodes(List<SimCard> cards, List<GeoCountry> countries,
     final soonest = group.reduce(
         (a, b) => a.effectiveDeadline.isAfter(b.effectiveDeadline) ? b : a);
     final worst = group
+        .where((c) => c.hasDeadline)
         .map((c) => c.urgency())
-        .reduce((a, b) => a.index < b.index ? a : b);
+        .fold(UrgencyTier.ok, (a, b) => a.index < b.index ? a : b);
     nodes.add(GlobeNode(
       code: code,
       lon: pos.$1,
