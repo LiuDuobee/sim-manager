@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import '../features/bento/estk_matrix.dart';
 import '../features/cards/flip_sim_card.dart';
@@ -38,6 +39,8 @@ class _HomePageState extends State<HomePage> {
   int _section = 0;
 
   List<SimCard> _cards = [];
+  List<SimCard> _archive = [];
+  bool _archiveOpen = false;
   bool _loading = true;
   List<GeoCountry>? _countries;
   String? _atlasError;
@@ -48,10 +51,14 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _repo.load().then((cards) {
+    _repo.load().then((cards) async {
+      final archive = await _repo.loadArchive();
       if (!mounted) return;
+      final ids = {for (final c in cards) c.id};
       setState(() {
         _cards = cards;
+        // A card in both lists (interrupted archive write) stays in the vault.
+        _archive = archive.where((a) => !ids.contains(a.id)).toList();
         _loading = false;
       });
       final errors = _repo.lastLoadErrors;
@@ -100,26 +107,50 @@ class _HomePageState extends State<HomePage> {
   /// Applies [change] to the latest cards, writes the result and only then
   /// shows it. Writes run one at a time so overlapping actions never save
   /// stale snapshots. False when the write failed (UI and vault unchanged).
-  Future<bool> _persist(List<SimCard> Function(List<SimCard>) change) {
+  Future<bool> _persist(List<SimCard> Function(List<SimCard>) change) =>
+      _persistBoth((cards, archive) => (change(cards), archive));
+
+  /// Vault + archive variant of [_persist]. The archive is written first, so
+  /// an interrupted move leaves the card in both lists (load keeps the vault
+  /// copy) rather than in neither.
+  Future<bool> _persistBoth(
+      (List<SimCard>, List<SimCard>) Function(List<SimCard>, List<SimCard>)
+          change) {
     final result = _writes.then((_) async {
-      final cards = change(_cards);
+      final (cards, archive) = change(_cards, _archive);
       try {
-        await _repo.save(cards);
+        if (!identical(archive, _archive)) await _repo.saveArchive(archive);
+        if (!identical(cards, _cards)) await _repo.save(cards);
       } on Object catch (e) {
         if (mounted) _toast('保存失败，本地数据未改动: $e');
         return false;
       }
-      if (mounted) setState(() => _cards = cards);
+      if (mounted) {
+        setState(() {
+          _cards = cards;
+          _archive = archive;
+        });
+      }
       return true;
     });
     _writes = result;
     return result;
   }
 
-  void _toast(String msg) => ScaffoldMessenger.of(context)
+  void _toast(String msg, {VoidCallback? undo}) => ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
-    ..showSnackBar(
-        SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating));
+    ..showSnackBar(SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      duration: undo == null
+          ? const Duration(milliseconds: 4000)
+          : const Duration(seconds: 5),
+      persist: false,
+      action: undo == null
+          ? null
+          : SnackBarAction(
+              key: const Key('undo-checkin'), label: '撤销', onPressed: undo),
+    ));
 
   void _selectCountry(String? code) {
     setState(() => _country = code);
@@ -139,11 +170,31 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _checkIn(SimCard card) async {
-    if (!await _persist((cards) =>
-        [for (final c in cards) c.id == card.id ? c.checkIn() : c])) {
+    SimCard? before, after;
+    if (!await _persist((cards) => [
+          for (final c in cards)
+            if (c.id == card.id) after = (before = c).checkIn() else c
+        ])) {
       return;
     }
-    _toast('${card.carrierName} 保号打卡成功，死线顺延 ${card.keepAliveCycleDays} 天');
+    if (before == null || after == null) return;
+    final (from, to) = (before!, after!);
+    _toast(
+        '${card.carrierName} 保号打卡成功，死线顺延至 '
+        '${DateFormat('yyyy-MM-dd').format(to.nextDeadlineDate)}'
+        '（${to.renewalBasis.label}）',
+        undo: () => _undoCheckIn(from, to));
+  }
+
+  /// Puts back the card as it was before [after]'s check-in, unless it has
+  /// changed since.
+  Future<void> _undoCheckIn(SimCard before, SimCard after) async {
+    final undone = _cards.any((c) => identical(c, after));
+    if (undone) {
+      await _persist(
+          (cards) => [for (final c in cards) identical(c, after) ? before : c]);
+    }
+    if (mounted) _toast(undone ? '已撤销打卡' : '卡片已变更，无法撤销');
   }
 
   Future<void> _openForm({SimCard? initial, int? presetSlot}) async {
@@ -153,20 +204,42 @@ class _HomePageState extends State<HomePage> {
     ));
     if (result == null) return;
     final exists = _cards.any((c) => c.id == result.id);
-    if (!await _persist((cards) => cards.any((c) => c.id == result.id)
-        ? [for (final c in cards) c.id == result.id ? result : c]
-        : [...cards, result])) {
+    final today = dateOnly(DateTime.now());
+    if (!await _persist((cards) {
+      final old = cards.where((c) => c.id == result.id).firstOrNull;
+      if (old == null) {
+        return [
+          ...cards,
+          result.withEvent(CardEvent(
+              at: today,
+              type: CardEventType.create,
+              deadline: result.nextDeadlineDate))
+        ];
+      }
+      final changed = describeEdit(old, result);
+      final edited = changed.isEmpty
+          ? result
+          : result.withEvent(CardEvent(
+              at: today,
+              type: CardEventType.edit,
+              deadline: result.nextDeadlineDate,
+              note: '修改 ${changed.join('、')}'));
+      return [for (final c in cards) c.id == result.id ? edited : c];
+    })) {
       return;
     }
     _toast(exists ? '已保存 ${result.carrierName}' : '已新增 ${result.carrierName}');
   }
 
+  /// Moves [card] to the archive: hidden from globe, radar, matrix and stats,
+  /// its passport kept. Permanent deletion lives in the archive.
   Future<void> _delete(SimCard card) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('删除 SIM 卡'),
-        content: Text('确定删除「${card.carrierName}」？此操作会立即写入本地存储。'),
+        title: const Text('归档 SIM 卡'),
+        content: Text('「${card.carrierName}」将移入归档区：从地球、雷达、15 槽矩阵和统计中隐藏，'
+            '护照历史保留，可随时恢复或在归档区彻底删除。'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -174,19 +247,83 @@ class _HomePageState extends State<HomePage> {
           FilledButton(
               key: const Key('confirm-delete'),
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('删除')),
+              child: const Text('归档')),
         ],
       ),
     );
     if (ok != true) return;
-    if (!await _persist(
-        (cards) => cards.where((c) => c.id != card.id).toList())) {
+    final today = dateOnly(DateTime.now());
+    if (!await _persistBoth((cards, archive) {
+      final current = cards.where((c) => c.id == card.id).firstOrNull;
+      if (current == null) return (cards, archive);
+      return (
+        cards.where((c) => c.id != card.id).toList(),
+        [
+          current
+              .copyWith(archivedAt: () => today)
+              .withEvent(CardEvent(at: today, type: CardEventType.archive)),
+          ...archive
+        ]
+      );
+    })) {
       return;
     }
     if (_slot != null && !_layout.slots.containsKey(_slot)) {
       setState(() => _slot = null);
     }
-    _toast('已删除 ${card.carrierName}');
+    _toast('已归档 ${card.carrierName}');
+  }
+
+  Future<void> _restore(SimCard card) async {
+    final today = dateOnly(DateTime.now());
+    var slotCleared = false;
+    if (!await _persistBoth((cards, archive) {
+      var restored = card
+          .copyWith(archivedAt: () => null)
+          .withEvent(CardEvent(at: today, type: CardEventType.restore));
+      final n = card.estkSlotNumber;
+      if (card.onProgrammableMedium &&
+          n != null &&
+          cards.any((c) => c.onProgrammableMedium && c.estkSlotNumber == n)) {
+        slotCleared = true;
+        restored = restored.copyWith(estkSlotNumber: () => null);
+      }
+      return (
+        [...cards, restored],
+        archive.where((c) => c.id != card.id).toList()
+      );
+    })) {
+      return;
+    }
+    _toast(slotCleared
+        ? '已恢复 ${card.carrierName}；原 eSTK 槽位 #${card.estkSlotNumber} 已被占用，请重新分配'
+        : '已恢复 ${card.carrierName}');
+  }
+
+  Future<void> _purge(SimCard card) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('彻底删除'),
+        content: Text('「${card.carrierName}」及其护照历史将被永久删除，无法恢复。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              key: const Key('confirm-purge'),
+              style: FilledButton.styleFrom(backgroundColor: context.hud.rose),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('彻底删除')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!await _persistBoth((cards, archive) =>
+        (cards, archive.where((c) => c.id != card.id).toList()))) {
+      return;
+    }
+    _toast('已彻底删除 ${card.carrierName}');
   }
 
   Future<void> _exportIcs(List<SimCard> cards, String name) async {
@@ -221,6 +358,7 @@ class _HomePageState extends State<HomePage> {
             _searchBar(filtered.length),
             const SizedBox(height: 16),
             _gallery(filtered),
+            _archiveSection(),
           ],
         ),
       ),
@@ -243,9 +381,14 @@ class _HomePageState extends State<HomePage> {
 
   void _openBackup() => Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => BackupPage(
-          cards: _cards,
-          onImport: (cards) async {
-            if (!await _persist((_) => cards)) return false;
+          cards: [..._cards, ..._archive],
+          onImport: (all) async {
+            if (!await _persistBoth((_, __) => (
+                  all.where((c) => c.archivedAt == null).toList(),
+                  all.where((c) => c.archivedAt != null).toList(),
+                ))) {
+              return false;
+            }
             setState(() {
               _country = null;
               _slot = null;
@@ -320,6 +463,7 @@ class _HomePageState extends State<HomePage> {
                             _searchBar(filtered.length),
                             const SizedBox(height: 14),
                             _gallery(filtered),
+                            _archiveSection(),
                           ])),
                 ],
               ),
@@ -585,6 +729,8 @@ class _HomePageState extends State<HomePage> {
       ..sort((a, b) => a.nextDeadlineDate.compareTo(b.nextDeadlineDate));
     final urgent = sorted.isEmpty ? null : sorted.first;
     final monthly = _cards.fold<double>(0, (s, c) => s + c.monthlyCny);
+    final annual = annualCostByCurrency(_cards);
+    final annualCny = _cards.fold<double>(0, (s, c) => s + c.annualCny);
     int count(MediaType m) => _cards.where((c) => c.mediaType == m).length;
     int tier(UrgencyTier t) => _cards.where((c) => c.urgency() == t).length;
     final regions = {for (final c in _cards) c.countryCode}.length;
@@ -679,6 +825,22 @@ class _HomePageState extends State<HomePage> {
                 .map((e) => '${e.key} ${e.value}')
                 .join('  '),
             style: Hud.mono.copyWith(fontSize: 10.5, color: context.hud.dim)),
+        const SizedBox(height: 8),
+        Text('年保号成本 ≈ ¥${annualCny.toStringAsFixed(0)}',
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: context.hud.emerald)),
+        Text(
+            annual.isEmpty
+                ? '—'
+                : annual.entries
+                    .map((e) => '${e.key} ${_money(e.value)}')
+                    .join(' · '),
+            key: const Key('annual-cost'),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Hud.mono.copyWith(fontSize: 10.5, color: context.hud.muted)),
       ]),
       _BentoTile(
         key: const Key('estk-bento'),
@@ -763,6 +925,79 @@ class _HomePageState extends State<HomePage> {
         ]),
       );
 
+  Widget _archiveSection() {
+    if (_archive.isEmpty) return const SizedBox.shrink();
+    final h = context.hud;
+    Widget row(SimCard c) => Padding(
+          key: Key('archived-${c.id}'),
+          padding: const EdgeInsets.only(bottom: 8),
+          child: GlassPanel(
+            radius: 14,
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+            child: Row(children: [
+              Expanded(
+                child: ColorFiltered(
+                  colorFilter: _greyscale,
+                  child: Opacity(
+                    opacity: .7,
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${c.countryCode}  ${c.carrierName}',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w700)),
+                          Text(
+                              '${c.phoneNumber.isEmpty ? '未录入号码' : c.phoneNumber} · '
+                              '归档于 ${c.archivedAt == null ? '—' : DateFormat('yyyy-MM-dd').format(c.archivedAt!)} · '
+                              '护照 ${c.events.length} 条',
+                              overflow: TextOverflow.ellipsis,
+                              style: Hud.mono
+                                  .copyWith(fontSize: 10.5, color: h.muted)),
+                        ]),
+                  ),
+                ),
+              ),
+              TextButton(
+                  key: Key('restore-${c.id}'),
+                  onPressed: () => _restore(c),
+                  child: const Text('恢复')),
+              TextButton(
+                  key: Key('purge-${c.id}'),
+                  style: TextButton.styleFrom(foregroundColor: h.rose),
+                  onPressed: () => _purge(c),
+                  child: const Text('彻底删除')),
+            ]),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(top: 22),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        InkWell(
+          key: const Key('archive-toggle'),
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => setState(() => _archiveOpen = !_archiveOpen),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: Hud.minTap),
+            child: Row(children: [
+              Icon(Icons.inventory_2_outlined, size: 18, color: h.dim),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: HudLabel('Archive · 归档区 ${_archive.length}',
+                      color: h.muted)),
+              Icon(_archiveOpen ? Icons.expand_less : Icons.expand_more,
+                  color: h.dim),
+            ]),
+          ),
+        ),
+        if (_archiveOpen) ...[
+          const SizedBox(height: 8),
+          for (final c in _archive) row(c),
+        ],
+      ]),
+    );
+  }
+
   Widget _gallery(List<SimCard> cards) {
     if (cards.isEmpty) {
       return Padding(
@@ -802,6 +1037,40 @@ class _HomePageState extends State<HomePage> {
     });
   }
 }
+
+String _money(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
+
+/// Field names that differ between two versions of a card, for the passport.
+List<String> describeEdit(SimCard a, SimCard b) => [
+      if (a.carrierName != b.carrierName) '运营商',
+      if (a.phoneNumber != b.phoneNumber) '号码',
+      if (a.nextDeadlineDate != b.nextDeadlineDate) '死线',
+      if (a.keepAliveCycleDays != b.keepAliveCycleDays) '周期',
+      if (a.keepAliveType != b.keepAliveType) '保号类型',
+      if (a.renewalBasis != b.renewalBasis) '续期算法',
+      if (a.cycleCost != b.cycleCost ||
+          a.currency != b.currency ||
+          a.billingCycle != b.billingCycle)
+        '资费',
+      if (a.balance != b.balance) '余额',
+      if (a.estkSlotNumber != b.estkSlotNumber ||
+          a.hostName != b.hostName ||
+          a.slotDetail != b.slotDetail ||
+          a.locationType != b.locationType)
+        '存放位置',
+      if (a.iccid != b.iccid ||
+          a.pin1 != b.pin1 ||
+          a.puk1 != b.puk1 ||
+          a.esimLpaCode != b.esimLpaCode)
+        '卡背机密',
+    ];
+
+const _greyscale = ColorFilter.matrix([
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0, 0, 0, 1, 0,
+]);
 
 class _BentoTile extends StatelessWidget {
   const _BentoTile({super.key, required this.children});

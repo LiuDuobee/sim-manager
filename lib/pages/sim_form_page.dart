@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../features/hud/hud_theme.dart';
 import '../models/sim_card.dart';
+import '../services/carrier_presets.dart';
 
 class SimFormPage extends StatefulWidget {
   const SimFormPage(
@@ -45,6 +46,10 @@ class _SimFormPageState extends State<SimFormPage> {
   late final _services =
       TextEditingController(text: _init?.boundServices.join(', '));
   late final _notes = TextEditingController(text: _init?.notes);
+  late final _rechargeUrl = TextEditingController(text: _init?.rechargeUrl);
+  late String _presetId = _init?.carrierPresetId ?? '';
+  late KeepAliveType _kaType = _init?.keepAliveType ?? KeepAliveType.activity;
+  late RenewalBasis _renewal = _init?.renewalBasis ?? RenewalBasis.fromAction;
 
   late MediaType _media = _init?.mediaType ??
       (widget.presetSlot != null ? MediaType.programmable : MediaType.physical);
@@ -77,6 +82,51 @@ class _SimFormPageState extends State<SimFormPage> {
 
   String? _validateFee(String? v) =>
       _validateNumber(v) ?? feeError(double.parse(v!.trim()), '周期费用');
+
+  /// Fills the rule, cost and top-up fields from a carrier preset; the
+  /// carrier name and country only when still empty / default.
+  void _applyPreset(String id) {
+    _presetId = id;
+    final p = presetById(id);
+    if (p == null) return;
+    if (_carrier.text.trim().isEmpty) _carrier.text = p.name;
+    if (_init == null) _country.text = p.countryCode;
+    _currency.text = p.currency;
+    _cost.text = p.cycleCost.toString();
+    _cycleDays.text = p.cycleDays.toString();
+    _action.text = p.action;
+    _rechargeUrl.text = p.rechargeUrl;
+    _billing = p.billingCycle;
+    _kaType = p.type;
+    _renewal = p.renewal;
+  }
+
+  /// Live annual-cost preview from the current form values.
+  String _annualPreview() {
+    final cost = double.tryParse(_cost.text.trim());
+    final days = int.tryParse(_cycleDays.text.trim());
+    if (cost == null ||
+        !cost.isFinite ||
+        cost < 0 ||
+        days == null ||
+        days <= 0) {
+      return '预估年成本 —';
+    }
+    final probe = SimCard(
+      id: '',
+      carrierName: '',
+      phoneNumber: '',
+      countryCode: 'CN',
+      mediaType: MediaType.physical,
+      nextDeadlineDate: _deadline,
+      currency: _currency.text.trim().toUpperCase(),
+      cycleCost: cost,
+      billingCycle: _billing,
+      keepAliveCycleDays: days,
+    );
+    return '预估年成本 ${probe.currency} ${probe.annualCost.toStringAsFixed(2)}'
+        ' ≈ ¥${probe.annualCny.toStringAsFixed(0)}';
+  }
 
   void _submit() {
     if (!_form.currentState!.validate()) return;
@@ -113,6 +163,12 @@ class _SimFormPageState extends State<SimFormPage> {
           .where((s) => s.isNotEmpty)
           .toList(),
       notes: _notes.text.trim(),
+      keepAliveType: _kaType,
+      renewalBasis: _renewal,
+      carrierPresetId: _presetId,
+      rechargeUrl: _rechargeUrl.text.trim(),
+      events: _init?.events ?? const [],
+      archivedAt: _init?.archivedAt,
     );
     Navigator.pop(context, card);
   }
@@ -249,6 +305,19 @@ class _SimFormPageState extends State<SimFormPage> {
                         type: TextInputType.number),
                   ]),
                   section('保号规则', [
+                    _dropdown<String>('运营商预设（自动带出规则，可改）', _presetId,
+                        ['', for (final p in carrierPresets) p.id], (id) {
+                      final p = presetById(id);
+                      return p == null
+                          ? '自定义'
+                          : '${p.name} · ${p.cycleDays} 天 · ${p.type.label}';
+                    }, _applyPreset, key: const Key('field-preset')),
+                    _dropdown('保号类型', _kaType, KeepAliveType.values,
+                        (t) => t.label, (t) => _kaType = t,
+                        key: const Key('field-ka-type')),
+                    _dropdown('续期算法', _renewal, RenewalBasis.values,
+                        (r) => r.label, (r) => _renewal = r,
+                        key: const Key('field-renewal')),
                     _field(_cycleDays, '保号周期 (天)',
                         key: const Key('field-cycle'),
                         type: TextInputType.number,
@@ -277,6 +346,21 @@ class _SimFormPageState extends State<SimFormPage> {
                       ),
                     ),
                     SizedBox(width: _wide, child: _field(_action, '保号动作')),
+                    SizedBox(
+                        width: _wide,
+                        child: _field(_rechargeUrl, '官方充值链接',
+                            key: const Key('field-recharge-url'))),
+                    SizedBox(
+                      width: _wide,
+                      child: ListenableBuilder(
+                        listenable:
+                            Listenable.merge([_cost, _cycleDays, _currency]),
+                        builder: (context, _) => Text(_annualPreview(),
+                            key: const Key('annual-preview'),
+                            style: Hud.mono.copyWith(
+                                fontSize: 12, color: context.hud.emerald)),
+                      ),
+                    ),
                   ]),
                   section('卡背机密', [
                     _field(_iccid, 'ICCID', key: const Key('field-iccid')),

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 /// Storage medium of a card, matching the v3.2 reference `cardType`.
 enum MediaType { physical, esim, programmable }
@@ -68,6 +69,163 @@ extension BillingCycleLabel on BillingCycle {
       };
 }
 
+/// How a number is kept alive: by any billable activity inside the cycle
+/// (giffgaff, povo) or by topping up before a validity date (Club SIM).
+enum KeepAliveType { activity, validity }
+
+extension KeepAliveTypeLabel on KeepAliveType {
+  String get label => switch (this) {
+        KeepAliveType.activity => '活跃度型',
+        KeepAliveType.validity => '有效期型',
+      };
+
+  /// The action the radar asks for.
+  String get verb => switch (this) {
+        KeepAliveType.activity => '需活跃',
+        KeepAliveType.validity => '需充值',
+      };
+
+  String get wireName => switch (this) {
+        KeepAliveType.activity => 'Activity',
+        KeepAliveType.validity => 'Validity',
+      };
+
+  static KeepAliveType parse(String? raw) => switch (raw?.toLowerCase()) {
+        'validity' => KeepAliveType.validity,
+        _ => KeepAliveType.activity,
+      };
+}
+
+/// Where the next cycle starts after a keep-alive action.
+enum RenewalBasis { fromAction, fromDeadline }
+
+extension RenewalBasisLabel on RenewalBasis {
+  String get label => switch (this) {
+        RenewalBasis.fromAction => '按操作当天重算',
+        RenewalBasis.fromDeadline => '按原到期日顺延',
+      };
+
+  String get wireName => switch (this) {
+        RenewalBasis.fromAction => 'FromAction',
+        RenewalBasis.fromDeadline => 'FromDeadline',
+      };
+
+  static RenewalBasis parse(String? raw) => switch (raw?.toLowerCase()) {
+        'fromdeadline' => RenewalBasis.fromDeadline,
+        _ => RenewalBasis.fromAction,
+      };
+}
+
+/// Next deadline after a keep-alive action on [today]. "顺延" extends the
+/// current deadline, but an already lapsed deadline restarts from today.
+DateTime renewedDeadline({
+  required RenewalBasis basis,
+  required DateTime deadline,
+  required DateTime today,
+  required int cycleDays,
+}) {
+  final base = basis == RenewalBasis.fromDeadline && !deadline.isBefore(today)
+      ? deadline
+      : today;
+  return addDays(base, cycleDays);
+}
+
+enum CardEventType { create, checkIn, topUp, edit, archive, restore }
+
+extension CardEventTypeLabel on CardEventType {
+  String get label => switch (this) {
+        CardEventType.create => '建卡',
+        CardEventType.checkIn => '活跃打卡',
+        CardEventType.topUp => '充值续期',
+        CardEventType.edit => '编辑',
+        CardEventType.archive => '归档',
+        CardEventType.restore => '恢复',
+      };
+
+  String get wireName => switch (this) {
+        CardEventType.create => 'Create',
+        CardEventType.checkIn => 'CheckIn',
+        CardEventType.topUp => 'TopUp',
+        CardEventType.edit => 'Edit',
+        CardEventType.archive => 'Archive',
+        CardEventType.restore => 'Restore',
+      };
+
+  static CardEventType? parse(String? raw) {
+    for (final t in CardEventType.values) {
+      if (t.wireName.toLowerCase() == raw?.toLowerCase()) return t;
+    }
+    return null;
+  }
+}
+
+/// One entry of a card's renewal passport (续费护照).
+class CardEvent {
+  const CardEvent({
+    required this.at,
+    required this.type,
+    this.amount,
+    this.currency = '',
+    this.deadline,
+    this.note = '',
+  });
+
+  final DateTime at;
+  final CardEventType type;
+
+  /// Money spent on this action (top-ups), in [currency]. Never negative.
+  final double? amount;
+  final String currency;
+
+  /// The deadline after this event, for check-ins / top-ups / edits.
+  final DateTime? deadline;
+  final String note;
+
+  Map<String, dynamic> toJson() => {
+        'at': _ymd(at),
+        'type': type.wireName,
+        if (amount != null) 'amount': amount,
+        if (currency.isNotEmpty) 'currency': currency,
+        if (deadline != null) 'deadline': _ymd(deadline!),
+        if (note.isNotEmpty) 'note': note,
+      };
+
+  factory CardEvent.fromJson(Object? raw) {
+    if (raw is! Map) throw const FormatException('护照事件必须是 JSON 对象');
+    final at = _parseDate(raw['at']);
+    if (at == null) throw const FormatException('护照事件缺少日期 at');
+    final type = CardEventTypeLabel.parse(raw['type'] as String?);
+    if (type == null) throw FormatException('未知护照事件类型 ${raw['type']}');
+    final amount = raw['amount'];
+    if (amount != null && amount is! num) {
+      throw const FormatException('护照事件金额 amount 必须是数字');
+    }
+    final error = feeError(amount as num?, '护照事件金额 amount ');
+    if (error != null) throw FormatException(error);
+    return CardEvent(
+      at: at,
+      type: type,
+      amount: amount?.toDouble(),
+      currency: raw['currency'] as String? ?? '',
+      deadline: _parseDate(raw['deadline']),
+      note: raw['note'] as String? ?? '',
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CardEvent &&
+      other.at == at &&
+      other.type == type &&
+      other.amount == amount &&
+      other.currency == currency &&
+      other.deadline == deadline &&
+      other.note == note;
+
+  @override
+  int get hashCode => Object.hash(at, type, amount, currency, deadline, note);
+}
+
 /// P1 ≤ 15 days, P2 ≤ 60 days, otherwise OK (same tiers as the reference).
 enum UrgencyTier { p1, p2, ok }
 
@@ -122,7 +280,20 @@ const exchangeRatesToCny = <String, double>{
   'EUR': 7.8,
   'AUD': 4.7,
   'SGD': 5.4,
+  'THB': 0.2,
 };
+
+/// Sums each card's estimated yearly keep-alive cost per currency.
+Map<String, double> annualCostByCurrency(Iterable<SimCard> cards) {
+  final out = <String, double>{};
+  for (final c in cards) {
+    final cost = c.annualCost;
+    if (cost <= 0) continue;
+    out.update(c.currency, (v) => v + cost, ifAbsent: () => cost);
+  }
+  return Map.fromEntries(
+      out.entries.toList()..sort((a, b) => a.key.compareTo(b.key)));
+}
 
 class SimCard {
   const SimCard({
@@ -152,6 +323,12 @@ class SimCard {
     this.esimLpaCode = '',
     this.boundServices = const [],
     this.notes = '',
+    this.keepAliveType = KeepAliveType.activity,
+    this.renewalBasis = RenewalBasis.fromAction,
+    this.carrierPresetId = '',
+    this.rechargeUrl = '',
+    this.events = const [],
+    this.archivedAt,
   });
 
   final String id;
@@ -182,6 +359,20 @@ class SimCard {
   final String esimLpaCode;
   final List<String> boundServices;
   final String notes;
+  final KeepAliveType keepAliveType;
+  final RenewalBasis renewalBasis;
+
+  /// Id of the carrier preset the rules came from ('' = custom).
+  final String carrierPresetId;
+  final String rechargeUrl;
+
+  /// Renewal passport, newest first.
+  final List<CardEvent> events;
+
+  /// Set while the card sits in the archive.
+  final DateTime? archivedAt;
+
+  static const maxEvents = 100;
 
   /// Cards whose profile is hosted on a programmable eSTK/5ber medium.
   bool get onProgrammableMedium =>
@@ -203,14 +394,41 @@ class SimCard {
     };
   }
 
-  /// Records a keep-alive action today and pushes the deadline one cycle out.
+  /// Estimated keep-alive cost per year in [currency]. Monthly / yearly
+  /// plans use their price; PayGo pays [cycleCost] once per keep-alive cycle.
+  double get annualCost => switch (billingCycle) {
+        BillingCycle.monthly => cycleCost * 12,
+        BillingCycle.yearly => cycleCost,
+        BillingCycle.payGo => cycleCost * 365 / math.max(keepAliveCycleDays, 1),
+      };
+
+  double get annualCny => annualCost * (exchangeRatesToCny[currency] ?? 1);
+
+  /// Prepends [event] to the passport.
+  SimCard withEvent(CardEvent event) =>
+      copyWith(events: [event, ...events].take(maxEvents).toList());
+
+  /// Records a keep-alive action today and moves the deadline by the card's
+  /// renewal rule. Validity cards log a top-up of one cycle's cost.
   SimCard checkIn({DateTime? now}) {
     final today = dateOnly(now ?? DateTime.now());
+    final next = renewedDeadline(
+        basis: renewalBasis,
+        deadline: nextDeadlineDate,
+        today: today,
+        cycleDays: keepAliveCycleDays);
+    final topUp = keepAliveType == KeepAliveType.validity;
     return copyWith(
       lastKeepAliveDate: today,
-      nextDeadlineDate: addDays(today, keepAliveCycleDays),
+      nextDeadlineDate: next,
       keepAliveLog: [today, ...keepAliveLog].take(20).toList(),
-    );
+    ).withEvent(CardEvent(
+      at: today,
+      type: topUp ? CardEventType.topUp : CardEventType.checkIn,
+      amount: topUp ? cycleCost : null,
+      currency: topUp ? currency : '',
+      deadline: next,
+    ));
   }
 
   SimCard copyWith({
@@ -240,6 +458,12 @@ class SimCard {
     String? esimLpaCode,
     List<String>? boundServices,
     String? notes,
+    KeepAliveType? keepAliveType,
+    RenewalBasis? renewalBasis,
+    String? carrierPresetId,
+    String? rechargeUrl,
+    List<CardEvent>? events,
+    DateTime? Function()? archivedAt,
   }) =>
       SimCard(
         id: id ?? this.id,
@@ -269,6 +493,12 @@ class SimCard {
         esimLpaCode: esimLpaCode ?? this.esimLpaCode,
         boundServices: boundServices ?? this.boundServices,
         notes: notes ?? this.notes,
+        keepAliveType: keepAliveType ?? this.keepAliveType,
+        renewalBasis: renewalBasis ?? this.renewalBasis,
+        carrierPresetId: carrierPresetId ?? this.carrierPresetId,
+        rechargeUrl: rechargeUrl ?? this.rechargeUrl,
+        events: events ?? this.events,
+        archivedAt: archivedAt != null ? archivedAt() : this.archivedAt,
       );
 
   Map<String, dynamic> toJson({bool redactSecrets = false}) => {
@@ -299,6 +529,12 @@ class SimCard {
         'esimLpaCode': redactSecrets ? '' : esimLpaCode,
         'boundServices': boundServices,
         'notes': notes,
+        'keepAliveType': keepAliveType.wireName,
+        'renewalBasis': renewalBasis.wireName,
+        'carrierPresetId': carrierPresetId,
+        'rechargeUrl': rechargeUrl,
+        'events': events.map((e) => e.toJson()).toList(),
+        'archivedAt': archivedAt == null ? null : _ymd(archivedAt!),
       };
 
   factory SimCard.fromJson(Map<String, dynamic> json) {
@@ -336,6 +572,22 @@ class SimCard {
         (savedCost == null || savedCost == 0) && monthlyFee != null
             ? monthlyFee
             : savedCost ?? 0;
+    final keepAliveLog = (json['keepAliveLog'] as List? ?? const [])
+        .map(_parseDate)
+        .whereType<DateTime>()
+        .toList();
+    final rawEvents = json['events'];
+    if (rawEvents != null && rawEvents is! List) {
+      throw const FormatException('护照 events 必须是数组');
+    }
+    // Cards saved before the passport existed: their check-in log becomes
+    // the first passport entries.
+    final events = rawEvents == null
+        ? [
+            for (final d in keepAliveLog)
+              CardEvent(at: d, type: CardEventType.checkIn)
+          ]
+        : [for (final e in rawEvents as List) CardEvent.fromJson(e)];
     return SimCard(
       id: json['id'] as String? ?? '${DateTime.now().microsecondsSinceEpoch}',
       carrierName: json['carrierName'] as String? ??
@@ -360,10 +612,7 @@ class SimCard {
       keepAliveAction: json['keepAliveAction'] as String? ?? '',
       lastKeepAliveDate: _parseDate(json['lastKeepAliveDate']),
       nextDeadlineDate: deadline,
-      keepAliveLog: (json['keepAliveLog'] as List? ?? const [])
-          .map(_parseDate)
-          .whereType<DateTime>()
-          .toList(),
+      keepAliveLog: keepAliveLog,
       iccid: json['iccid'] as String? ?? '',
       pin1: json['pin1'] as String? ?? '',
       puk1: json['puk1'] as String? ?? '',
@@ -372,6 +621,12 @@ class SimCard {
           .whereType<String>()
           .toList(),
       notes: notes,
+      keepAliveType: KeepAliveTypeLabel.parse(json['keepAliveType'] as String?),
+      renewalBasis: RenewalBasisLabel.parse(json['renewalBasis'] as String?),
+      carrierPresetId: json['carrierPresetId'] as String? ?? '',
+      rechargeUrl: json['rechargeUrl'] as String? ?? '',
+      events: events,
+      archivedAt: _parseDate(json['archivedAt']),
     );
   }
 
