@@ -106,11 +106,11 @@ function App() {
   }, [])
 
   const persist = async (next: SimCard[]) => {
+    setCards(next)
     await cardDb.transaction('rw', cardDb.cards, async () => {
       await cardDb.cards.clear()
       await cardDb.cards.bulkPut(next)
     })
-    setCards(next)
   }
 
   const filtered = useMemo(() => cards.filter((card) => {
