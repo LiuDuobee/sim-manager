@@ -11,6 +11,13 @@ extension MediaTypeLabel on MediaType {
         MediaType.programmable => '5ber·eSTK 写卡器',
       };
 
+  /// Medium wording used by the form and the medium matrix.
+  String get mediumLabel => switch (this) {
+        MediaType.physical => '运营商实体卡',
+        MediaType.esim => '设备内置 eSIM',
+        MediaType.programmable => '可复写 eUICC 卡',
+      };
+
   String get wireName => switch (this) {
         MediaType.physical => 'Physical',
         MediaType.esim => 'eSIM',
@@ -419,6 +426,7 @@ class SimCard {
     this.planStartDate,
     this.planDays,
     this.planEndDate,
+    this.mediumId,
   });
 
   final String id;
@@ -492,6 +500,11 @@ class SimCard {
   final DateTime? planStartDate;
   final int? planDays;
   final DateTime? planEndDate;
+
+  /// The slot-bearing medium (see medium.dart) holding this profile; the
+  /// slot within it is [estkSlotNumber]. Null for programmable cards saved
+  /// before v3.4 means the legacy 15-slot eSTK.
+  final String? mediumId;
 
   String get kindLabel =>
       kind == CardKind.other && customKind.isNotEmpty ? customKind : kind.label;
@@ -669,6 +682,7 @@ class SimCard {
     DateTime? Function()? planStartDate,
     int? Function()? planDays,
     DateTime? Function()? planEndDate,
+    String? Function()? mediumId,
   }) =>
       SimCard(
         id: id ?? this.id,
@@ -718,6 +732,7 @@ class SimCard {
             planStartDate != null ? planStartDate() : this.planStartDate,
         planDays: planDays != null ? planDays() : this.planDays,
         planEndDate: planEndDate != null ? planEndDate() : this.planEndDate,
+        mediumId: mediumId != null ? mediumId() : this.mediumId,
       );
 
   Map<String, dynamic> toJson({bool redactSecrets = false}) => {
@@ -767,6 +782,7 @@ class SimCard {
         'planStartDate': planStartDate == null ? null : _ymd(planStartDate!),
         'planDays': planDays,
         'planEndDate': planEndDate == null ? null : _ymd(planEndDate!),
+        'mediumId': mediumId,
       };
 
   factory SimCard.fromJson(Map<String, dynamic> json) {
@@ -883,6 +899,7 @@ class SimCard {
       planStartDate: _parseDate(json['planStartDate']),
       planDays: planDays?.toInt(),
       planEndDate: _parseDate(json['planEndDate']),
+      mediumId: json['mediumId'] as String?,
     );
   }
 

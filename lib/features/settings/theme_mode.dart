@@ -109,10 +109,8 @@ class ThemeModeSwitch extends StatelessWidget {
 }
 
 /// Phone: a bottom sheet holding the same switch with labels.
-Future<void> showThemeModeSheet(BuildContext context) => showModalBottomSheet(
-      context: context,
-      backgroundColor: context.hud.panel,
-      showDragHandle: true,
+Future<void> showThemeModeSheet(BuildContext context) => showGlassBottomSheet(
+      context,
       builder: (sheetContext) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),

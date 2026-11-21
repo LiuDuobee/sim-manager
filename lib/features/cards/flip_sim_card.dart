@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../models/sim_card.dart';
 import '../hud/hud_theme.dart';
 import '../hud/motion.dart';
+import '../bento/medium_scope.dart';
 import 'brand.dart';
 import 'region_flag.dart';
 import 'show_number_page.dart';
@@ -451,7 +452,7 @@ class _Front extends StatelessWidget {
               .join(' · ')),
         if (card.estkSlotNumber != null)
           _Tag(
-              'eSTK #${card.estkSlotNumber}'
+              '${MediumScope.nameFor(context, card) ?? 'eSTK'} #${card.estkSlotNumber}'
               '${card.profileName.isEmpty ? '' : ' · ${card.profileName}'}',
               color: context.hud.amber),
         for (final t in card.tags) _Tag('#$t', color: context.hud.emerald),

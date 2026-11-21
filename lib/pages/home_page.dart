@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../features/bento/estk_matrix.dart';
+import '../features/bento/medium_scope.dart';
 import '../features/cards/flip_sim_card.dart';
 import '../features/cards/sms_renewal_page.dart';
 import '../features/globe/atlas_globe.dart';
@@ -19,6 +20,7 @@ import '../features/hud/hud_theme.dart';
 import '../features/hud/motion.dart';
 import '../features/settings/theme_mode.dart';
 import '../features/settings/update_ui.dart';
+import '../models/medium.dart';
 import '../models/sim_card.dart';
 import '../services/estk_slots.dart';
 import '../services/file_export.dart';
@@ -28,6 +30,7 @@ import '../services/sim_repository.dart';
 import '../services/time_river.dart';
 import '../services/update/update_logic.dart';
 import '../services/update/update_services.dart';
+import 'media_page.dart';
 import 'backup_page.dart';
 import 'sim_form_page.dart';
 
@@ -63,6 +66,9 @@ class _HomePageState extends State<HomePage> {
   MediaType? _mediaFilter;
   String? _country;
   int? _slot;
+  List<Medium> _media = const [legacyEstkMedium];
+  String _mediumSel = legacyMediumId;
+  double _topBarHeight = 64;
   String? _tag;
   PlanType? _planFilter;
   CardKind? _kindFilter;
@@ -84,12 +90,15 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _repo.load().then((cards) async {
       final archive = await _repo.loadArchive();
+      final media = await _repo.loadMedia();
       if (!mounted) return;
       final ids = {for (final c in cards) c.id};
       setState(() {
         _cards = cards;
         // A card in both lists (interrupted archive write) stays in the vault.
         _archive = archive.where((a) => !ids.contains(a.id)).toList();
+        _media = reconcileMedia(media, [...cards, ...archive]);
+        _mediumSel = _media.first.id;
         _loading = false;
       });
       final errors = _repo.lastLoadErrors;
@@ -121,7 +130,34 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  EstkSlotLayout get _layout => layoutEstkSlots(_cards);
+  Medium get _selectedMedium =>
+      _media.firstWhere((m) => m.id == _mediumSel, orElse: () => _media.first);
+
+  EstkSlotLayout get _layout => layoutMediumSlots(_selectedMedium, _cards);
+
+  String _mediumName(SimCard c) {
+    final id = c.resolvedMediumId;
+    return _media.where((m) => m.id == id).firstOrNull?.name ?? 'eSTK';
+  }
+
+  Future<void> _manageMedia() async {
+    final next = await Navigator.of(context).push<List<Medium>>(
+        MaterialPageRoute(
+            builder: (_) =>
+                MediaPage(media: _media, cards: [..._cards, ..._archive])));
+    if (next == null || !mounted) return;
+    try {
+      await _repo.saveMedia(next);
+    } on Object catch (e) {
+      _toast('保存失败，载体列表未改动: $e');
+      return;
+    }
+    setState(() {
+      _media = next;
+      if (!next.any((m) => m.id == _mediumSel)) _mediumSel = next.first.id;
+      _slot = null;
+    });
+  }
 
   List<SimCard> get _filtered {
     final q = _search.text.trim().toLowerCase();
@@ -261,7 +297,11 @@ class _HomePageState extends State<HomePage> {
   Future<void> _openForm({SimCard? initial, int? presetSlot}) async {
     final result = await Navigator.of(context).push<SimCard>(MaterialPageRoute(
       builder: (_) => SimFormPage(
-          initial: initial, presetSlot: presetSlot, existing: _cards),
+          initial: initial,
+          presetSlot: presetSlot,
+          existing: _cards,
+          media: _media,
+          presetMediumId: presetSlot == null ? null : _selectedMedium.id),
     ));
     if (result == null) return;
     final exists = _cards.any((c) => c.id == result.id);
@@ -345,9 +385,11 @@ class _HomePageState extends State<HomePage> {
           .copyWith(archivedAt: () => null)
           .withEvent(CardEvent(at: today, type: CardEventType.restore));
       final n = card.estkSlotNumber;
-      if (card.onProgrammableMedium &&
+      final mid = card.resolvedMediumId;
+      if (mid != null &&
           n != null &&
-          cards.any((c) => c.onProgrammableMedium && c.estkSlotNumber == n)) {
+          cards
+              .any((c) => c.resolvedMediumId == mid && c.estkSlotNumber == n)) {
         slotCleared = true;
         restored = restored.copyWith(estkSlotNumber: () => null);
       }
@@ -360,7 +402,7 @@ class _HomePageState extends State<HomePage> {
     }
     if (!restoredNow) return;
     _toast(slotCleared
-        ? '已恢复 ${card.carrierName}；原 eSTK 槽位 #${card.estkSlotNumber} 已被占用，请重新分配'
+        ? '已恢复 ${card.carrierName}；原 ${_mediumName(card)} 槽位 #${card.estkSlotNumber} 已被占用，请重新分配'
         : '已恢复 ${card.carrierName}');
   }
 
@@ -409,32 +451,94 @@ class _HomePageState extends State<HomePage> {
     if (_loading) {
       return const Scaffold(body: SafeArea(child: _Skeleton()));
     }
-    if (Hud.isCompact(context)) return _mobileScaffold(filtered);
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          controller: _desktopScroll,
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
-          children: [
-            _header(),
-            const SizedBox(height: 14),
-            _hero(),
-            const SizedBox(height: 18),
-            _hud(filtered),
-            const SizedBox(height: 18),
-            _bento(),
-            const SizedBox(height: 18),
-            _searchBar(filtered.length),
-            const SizedBox(height: 16),
-            _gallery(filtered),
-            _archiveSection(),
-          ],
-        ),
-      ),
-    );
+    final page = Hud.isCompact(context)
+        ? _mobileScaffold(filtered)
+        : _desktopScaffold(filtered);
+    // One backdrop snapshot shared by every floating glass layer.
+    return MediumScope(media: _media, child: BackdropGroup(child: page));
   }
 
-  Widget _hud(List<SimCard> filtered) => HudStage(
+  /// The floating glass top bar plus a scroll view that starts below it but
+  /// paints (unclipped) underneath it, so content visibly slides under the
+  /// frosted bar while hit testing and ensureVisible stay below the bar.
+  Widget _underTopBar(
+      Widget topBarChild, Widget scrollable, ScrollController controller) {
+    final inset = MediaQuery.viewPaddingOf(context).top;
+    return Stack(children: [
+      Positioned.fill(
+          top: _topBarHeight, child: RepaintBoundary(child: scrollable)),
+      Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        child: SizeReporter(
+          onSize: (s) {
+            if ((s.height - _topBarHeight).abs() > .5) {
+              setState(() => _topBarHeight = s.height);
+            }
+          },
+          // Dragging the bar scrolls the page, as dragging the content does.
+          child: GestureDetector(
+            onVerticalDragUpdate: (d) {
+              if (!controller.hasClients) return;
+              final p = controller.position;
+              p.jumpTo((p.pixels - d.delta.dy)
+                  .clamp(p.minScrollExtent, p.maxScrollExtent));
+            },
+            onVerticalDragEnd: (d) {
+              if (!controller.hasClients) return;
+              final p = controller.position;
+              if (p is ScrollPositionWithSingleContext) {
+                p.goBallistic(-(d.primaryVelocity ?? 0));
+              }
+            },
+            child: GlassPanel(
+              key: const Key('top-bar'),
+              floating: true,
+              borderRadius:
+                  const BorderRadius.vertical(bottom: Radius.circular(20)),
+              padding: EdgeInsets.fromLTRB(
+                  Hud.isCompact(context) ? 12 : 24,
+                  inset + (Hud.isCompact(context) ? 6 : 10),
+                  Hud.isCompact(context) ? 8 : 24,
+                  Hud.isCompact(context) ? 6 : 10),
+              child: topBarChild,
+            ),
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _desktopScaffold(List<SimCard> filtered) => Scaffold(
+        body: SafeArea(
+          top: false,
+          child: _underTopBar(
+            _header(),
+            ListView(
+              controller: _desktopScroll,
+              clipBehavior: Clip.none,
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+              children: [
+                _hero(),
+                const SizedBox(height: 18),
+                _hud(filtered),
+                const SizedBox(height: 18),
+                _bento(),
+                const SizedBox(height: 18),
+                _searchBar(filtered.length),
+                const SizedBox(height: 16),
+                _gallery(filtered),
+                _archiveSection(),
+              ],
+            ),
+            _desktopScroll,
+          ),
+        ),
+      );
+
+  Widget _hud(List<SimCard> filtered) => RepaintBoundary(
+          child: HudStage(
         allCards: _cards,
         filteredCards: filtered,
         countries: _countries,
@@ -446,21 +550,33 @@ class _HomePageState extends State<HomePage> {
         onSelectCountry: _selectCountry,
         onGlobeCountryTap: _onGlobeCountry,
         onCheckIn: _checkIn,
-      );
+      ));
 
   void _openBackup() => Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => BackupPage(
           cards: [..._cards, ..._archive],
-          onImport: (all) async {
+          media: _media,
+          onImport: (all, media) async {
+            // A pre-v3.4 backup has no medium list: keep the current one.
+            final nextMedia = reconcileMedia(media ?? _media, all);
             if (!await _persistBoth((_, __) => (
                   all.where((c) => c.archivedAt == null).toList(),
                   all.where((c) => c.archivedAt != null).toList(),
                 ))) {
               return false;
             }
+            try {
+              await _repo.saveMedia(nextMedia);
+            } on Object catch (e) {
+              _toast('卡片已导入，但载体列表保存失败: $e');
+            }
             setState(() {
               _country = null;
               _slot = null;
+              _media = nextMedia;
+              if (!nextMedia.any((m) => m.id == _mediumSel)) {
+                _mediumSel = nextMedia.first.id;
+              }
             });
             return true;
           },
@@ -488,9 +604,9 @@ class _HomePageState extends State<HomePage> {
         KeyedSubtree(key: _sectionKeys[i], child: child);
     return Scaffold(
       body: Stack(children: [
-        SafeArea(
-          bottom: false,
-          child: NotificationListener<ScrollUpdateNotification>(
+        _underTopBar(
+          _mobileHeader(),
+          NotificationListener<ScrollUpdateNotification>(
             onNotification: (_) {
               _syncSection();
               return false;
@@ -498,6 +614,7 @@ class _HomePageState extends State<HomePage> {
             child: SingleChildScrollView(
               key: const Key('mobile-scroll'),
               controller: _mobileScroll,
+              clipBehavior: Clip.none,
               padding: EdgeInsets.fromLTRB(
                   12, 8, 12, keyboardOpen ? 16 : dockSpace + 16),
               child: Column(
@@ -508,8 +625,6 @@ class _HomePageState extends State<HomePage> {
                       Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            _mobileHeader(),
-                            const SizedBox(height: 10),
                             _hero(),
                             const SizedBox(height: 10),
                             _hud(filtered),
@@ -555,6 +670,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ),
+          _mobileScroll,
         ),
         if (!keyboardOpen)
           Positioned(
@@ -687,7 +803,7 @@ class _HomePageState extends State<HomePage> {
         key: const Key('mobile-dock'),
         radius: 22,
         padding: const EdgeInsets.all(6),
-        tint: context.hud.dockTint,
+        floating: true,
         child: SizedBox(
           height: 52,
           child: Row(children: [
@@ -960,6 +1076,12 @@ class _HomePageState extends State<HomePage> {
             onSelectSlot: (n) => setState(() => _slot = n),
             onWriteToSlot: (n) => _openForm(presetSlot: n),
             onRenameSlot: _renameSlot,
+            media: _media,
+            onSelectMedium: (id) => setState(() {
+              _mediumSel = id;
+              _slot = null;
+            }),
+            onManageMedia: _manageMedia,
           ),
         ],
       ),
@@ -1381,9 +1503,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _openSettings() => showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
+  Future<void> _openSettings() => showGlassBottomSheet<void>(
+        context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, setSheet) => SafeArea(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -1780,6 +1901,7 @@ List<String> describeEdit(SimCard a, SimCard b) => [
       if (a.reminderOffsets.join('|') != b.reminderOffsets.join('|')) '提醒',
       if (a.profileName != b.profileName) 'Profile 昵称',
       if (a.estkSlotNumber != b.estkSlotNumber ||
+          a.resolvedMediumId != b.resolvedMediumId ||
           a.hostName != b.hostName ||
           a.slotDetail != b.slotDetail ||
           a.locationType != b.locationType)
