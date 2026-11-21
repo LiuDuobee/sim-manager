@@ -445,7 +445,10 @@ class _Front extends StatelessWidget {
       ]),
       const SizedBox(height: 12),
       Wrap(spacing: 6, runSpacing: 4, children: [
-        _Tag('${card.hostName} · ${card.slotDetail}'),
+        if (card.hostName.isNotEmpty || card.slotDetail.isNotEmpty)
+          _Tag([card.hostName, card.slotDetail]
+              .where((s) => s.isNotEmpty)
+              .join(' · ')),
         if (card.estkSlotNumber != null)
           _Tag(
               'eSTK #${card.estkSlotNumber}'
