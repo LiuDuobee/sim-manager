@@ -329,6 +329,9 @@ class SimCard {
     this.rechargeUrl = '',
     this.events = const [],
     this.archivedAt,
+    this.tags = const [],
+    this.reminderOffsets = defaultReminderOffsets,
+    this.profileName = '',
   });
 
   final String id;
@@ -372,6 +375,18 @@ class SimCard {
   /// Set while the card sits in the archive.
   final DateTime? archivedAt;
 
+  /// Free-form labels such as 主力 / 备用 / 收藏.
+  final List<String> tags;
+
+  /// Days before the deadline to remind (0 = on the day), largest first.
+  final List<int> reminderOffsets;
+
+  /// Nickname of the eSTK slot profile this card occupies (e.g. 工作号).
+  final String profileName;
+
+  static const defaultReminderOffsets = [3];
+  static const maxReminderOffset = 365;
+
   static const maxEvents = 100;
 
   /// Cards whose profile is hosted on a programmable eSTK/5ber medium.
@@ -404,6 +419,32 @@ class SimCard {
       };
 
   double get annualCny => annualCost * (exchangeRatesToCny[currency] ?? 1);
+
+  /// Records a top-up confirmed by the user (e.g. parsed from an SMS).
+  /// [deadline] is the validity date the carrier reported; without it the
+  /// card's renewal rule decides, as for a check-in.
+  SimCard recordTopUp({double? amount, DateTime? deadline, DateTime? now}) {
+    final today = dateOnly(now ?? DateTime.now());
+    final next = deadline != null
+        ? dateOnly(deadline)
+        : renewedDeadline(
+            basis: renewalBasis,
+            deadline: nextDeadlineDate,
+            today: today,
+            cycleDays: keepAliveCycleDays);
+    return copyWith(
+      lastKeepAliveDate: today,
+      nextDeadlineDate: next,
+      keepAliveLog: [today, ...keepAliveLog].take(20).toList(),
+    ).withEvent(CardEvent(
+      at: today,
+      type: CardEventType.topUp,
+      amount: amount,
+      currency: amount == null ? '' : currency,
+      deadline: next,
+      note: '短信录入',
+    ));
+  }
 
   /// Prepends [event] to the passport.
   SimCard withEvent(CardEvent event) =>
@@ -465,6 +506,9 @@ class SimCard {
     String? rechargeUrl,
     List<CardEvent>? events,
     DateTime? Function()? archivedAt,
+    List<String>? tags,
+    List<int>? reminderOffsets,
+    String? profileName,
   }) =>
       SimCard(
         id: id ?? this.id,
@@ -500,6 +544,9 @@ class SimCard {
         rechargeUrl: rechargeUrl ?? this.rechargeUrl,
         events: events ?? this.events,
         archivedAt: archivedAt != null ? archivedAt() : this.archivedAt,
+        tags: tags ?? this.tags,
+        reminderOffsets: reminderOffsets ?? this.reminderOffsets,
+        profileName: profileName ?? this.profileName,
       );
 
   Map<String, dynamic> toJson({bool redactSecrets = false}) => {
@@ -536,6 +583,9 @@ class SimCard {
         'rechargeUrl': rechargeUrl,
         'events': events.map((e) => e.toJson()).toList(),
         'archivedAt': archivedAt == null ? null : _ymd(archivedAt!),
+        'tags': tags,
+        'reminderOffsets': reminderOffsets,
+        'profileName': profileName,
       };
 
   factory SimCard.fromJson(Map<String, dynamic> json) {
@@ -628,7 +678,32 @@ class SimCard {
       rechargeUrl: json['rechargeUrl'] as String? ?? '',
       events: events,
       archivedAt: _parseDate(json['archivedAt']),
+      tags: _parseTags(json['tags']),
+      reminderOffsets: _parseOffsets(json['reminderOffsets']),
+      profileName: json['profileName'] as String? ?? '',
     );
+  }
+
+  static List<String> _parseTags(Object? raw) {
+    if (raw == null) return const [];
+    if (raw is! List || raw.any((t) => t is! String)) {
+      throw const FormatException('标签 tags 必须是字符串数组');
+    }
+    return normalizeTags(raw.cast<String>());
+  }
+
+  static List<int> _parseOffsets(Object? raw) {
+    if (raw == null) return defaultReminderOffsets;
+    if (raw is! List) {
+      throw const FormatException('提醒偏移 reminderOffsets 必须是数组');
+    }
+    final out = <int>[];
+    for (final v in raw) {
+      final error = reminderOffsetError(v);
+      if (error != null) throw FormatException(error);
+      out.add((v as num).toInt());
+    }
+    return normalizeOffsets(out);
   }
 
   static String encodeList(List<SimCard> cards, {bool redactSecrets = false}) =>
@@ -680,6 +755,35 @@ class SimCard {
       throw FormatException('第 ${i + 1} 张卡片字段类型错误: $e');
     }
   }
+}
+
+/// Null when [v] is a whole number of days in 0..[SimCard.maxReminderOffset].
+String? reminderOffsetError(Object? v) {
+  if (v is! num || !v.isFinite || v != v.roundToDouble()) {
+    return '提醒偏移必须是整数天数';
+  }
+  if (v < 0) return '提醒偏移不能为负数';
+  if (v > SimCard.maxReminderOffset) {
+    return '提醒偏移不能超过 ${SimCard.maxReminderOffset} 天';
+  }
+  return null;
+}
+
+/// Unique offsets, largest (earliest reminder) first.
+List<int> normalizeOffsets(Iterable<int> offsets) =>
+    offsets.toSet().toList()..sort((a, b) => b.compareTo(a));
+
+/// Trimmed, non-empty, unique tags in their original order.
+List<String> normalizeTags(Iterable<String> tags) =>
+    tags.map((t) => t.trim()).where((t) => t.isNotEmpty).toSet().toList();
+
+/// Only the last four digits of [phone], for privacy mode.
+String maskPhone(String phone) {
+  final digits = phone.replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) return '';
+  final tail =
+      digits.length <= 4 ? digits : digits.substring(digits.length - 4);
+  return '尾号 $tail';
 }
 
 String _ymd(DateTime d) =>

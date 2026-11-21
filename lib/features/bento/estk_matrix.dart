@@ -11,6 +11,7 @@ class EstkMatrixCard extends StatelessWidget {
     required this.selectedSlot,
     required this.onSelectSlot,
     required this.onWriteToSlot,
+    this.onRenameSlot,
     this.compact = false,
   });
 
@@ -18,6 +19,9 @@ class EstkMatrixCard extends StatelessWidget {
   final int? selectedSlot;
   final ValueChanged<int?> onSelectSlot;
   final ValueChanged<int> onWriteToSlot;
+
+  /// Long-press / right-click: edit the slot's profile nickname.
+  final ValueChanged<int>? onRenameSlot;
   final bool compact;
 
   @override
@@ -61,7 +65,9 @@ class EstkMatrixCard extends StatelessWidget {
                         : context.hud.rose))
             : selectedCard != null
                 ? Text(
-                    '槽位 #$selected 已占用 · ${selectedCard.carrierName} '
+                    '槽位 #$selected 已占用 · '
+                    '${selectedCard.profileName.isEmpty ? '' : '「${selectedCard.profileName}」'}'
+                    '${selectedCard.carrierName} '
                     '${selectedCard.phoneNumber} · ${selectedCard.hostName} ${selectedCard.slotDetail}',
                     key: const Key('slot-detail'),
                     maxLines: 2,
@@ -90,12 +96,15 @@ class EstkMatrixCard extends StatelessWidget {
     final occupied = card != null;
     return Tooltip(
       message: occupied
-          ? '槽位 #$n: ${card.carrierName} (${card.phoneNumber})'
+          ? '槽位 #$n${card.profileName.isEmpty ? '' : '「${card.profileName}」'}: '
+              '${card.carrierName} (${card.phoneNumber}) · 长按/右键改昵称'
           : '槽位 #$n: 空闲可用',
       child: InkWell(
         key: Key('slot-$n'),
         borderRadius: BorderRadius.circular(7),
         onTap: () => onSelectSlot(isSelected ? null : n),
+        onLongPress: onRenameSlot == null ? null : () => onRenameSlot!(n),
+        onSecondaryTap: onRenameSlot == null ? null : () => onRenameSlot!(n),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           height: compact ? Hud.minTap : 30,
@@ -115,7 +124,11 @@ class EstkMatrixCard extends StatelessWidget {
                         : h.wellEdge),
           ),
           child: Text(
-            occupied ? '#$n ${card.countryCode}' : '#$n',
+            occupied
+                ? '#$n ${card.profileName.isEmpty ? card.countryCode : card.profileName}'
+                : '#$n',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: Hud.mono.copyWith(
                 fontSize: 10,
                 fontWeight: occupied ? FontWeight.w800 : FontWeight.w400,

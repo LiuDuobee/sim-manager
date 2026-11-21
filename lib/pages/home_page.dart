@@ -3,9 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../features/bento/estk_matrix.dart';
 import '../features/cards/flip_sim_card.dart';
+import '../features/cards/sms_renewal_page.dart';
 import '../features/globe/atlas_globe.dart';
 import '../features/globe/globe_controller.dart';
 import '../features/globe/topojson.dart';
@@ -20,6 +22,7 @@ import '../services/file_export.dart';
 import '../services/ics_export.dart';
 import '../services/seed_cards.dart';
 import '../services/sim_repository.dart';
+import '../services/time_river.dart';
 import 'backup_page.dart';
 import 'sim_form_page.dart';
 
@@ -52,6 +55,13 @@ class _HomePageState extends State<HomePage> {
   MediaType? _mediaFilter;
   String? _country;
   int? _slot;
+  String? _tag;
+  String? _focused;
+  bool _maskNumbers = false;
+  final _cardKeys = <String, GlobalKey>{};
+  final _desktopScroll = ScrollController();
+
+  static const privacyPrefsKey = 'simvault.maskNumbers';
 
   @override
   void initState() {
@@ -72,6 +82,10 @@ class _HomePageState extends State<HomePage> {
             '原始记录已隔离保存，未写入卡库');
       }
     });
+    SharedPreferences.getInstance().then((p) {
+      final v = p.getBool(privacyPrefsKey) ?? false;
+      if (mounted && v != _maskNumbers) setState(() => _maskNumbers = v);
+    });
     (widget.atlasLoader ?? loadWorldAtlas)().then(
       (c) => mounted ? setState(() => _countries = c) : null,
       onError: (Object e) =>
@@ -84,6 +98,7 @@ class _HomePageState extends State<HomePage> {
     _globe.dispose();
     _search.dispose();
     _mobileScroll.dispose();
+    _desktopScroll.dispose();
     super.dispose();
   }
 
@@ -96,6 +111,7 @@ class _HomePageState extends State<HomePage> {
       if (_mediaFilter != null && c.mediaType != _mediaFilter) return false;
       if (_country != null && c.countryCode != _country) return false;
       if (slotCard != null && slotCard.id != c.id) return false;
+      if (_tag != null && !c.tags.contains(_tag)) return false;
       if (q.isEmpty) return true;
       return [
         c.carrierName,
@@ -356,7 +372,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _exportIcs(List<SimCard> cards, String name) async {
-    final ics = buildIcsCalendar(cards);
+    final ics = buildIcsCalendar(cards, maskNumbers: _maskNumbers);
     final path = await saveTextFile(name, ics);
     if (path != null) {
       _toast('已导出日历: $path');
@@ -376,6 +392,7 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       body: SafeArea(
         child: ListView(
+          controller: _desktopScroll,
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
           children: [
             _header(),
@@ -626,6 +643,12 @@ class _HomePageState extends State<HomePage> {
               color: context.hud.muted),
         ),
         IconButton(
+          key: const Key('open-settings'),
+          tooltip: '设置',
+          onPressed: _openSettings,
+          icon: Icon(Icons.tune, color: context.hud.muted),
+        ),
+        IconButton(
           key: const Key('export-all-ics'),
           tooltip: '导出全部 ICS',
           onPressed: () => _exportIcs(_cards, 'SIMVault_all_deadlines.ics'),
@@ -754,6 +777,12 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 const ThemeModeSwitch(),
+                IconButton(
+                  key: const Key('open-settings'),
+                  tooltip: '设置',
+                  onPressed: _openSettings,
+                  icon: Icon(Icons.tune, color: context.hud.muted),
+                ),
                 OutlinedButton.icon(
                   key: const Key('export-all-ics'),
                   onPressed: () =>
@@ -909,6 +938,7 @@ class _HomePageState extends State<HomePage> {
             selectedSlot: _slot,
             onSelectSlot: (n) => setState(() => _slot = n),
             onWriteToSlot: (n) => _openForm(presetSlot: n),
+            onRenameSlot: _renameSlot,
           ),
         ],
       ),
@@ -928,6 +958,8 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(height: 10),
         tiles[1],
         const SizedBox(height: 10),
+        _riverTile(),
+        const SizedBox(height: 10),
         tiles[3],
       ]);
     }
@@ -938,13 +970,42 @@ class _HomePageState extends State<HomePage> {
         spacing: 14,
         runSpacing: 14,
         children: [
-          for (final t in tiles) SizedBox(width: w, height: 232, child: t)
+          for (final t in tiles) SizedBox(width: w, height: 232, child: t),
+          SizedBox(width: c.maxWidth, child: _riverTile()),
         ],
       );
     });
   }
 
-  Widget _searchBar(int shown) => Container(
+  Widget _searchBar(int shown) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [_searchField(shown), _tagBar()]);
+
+  List<String> get _allTags =>
+      normalizeTags([for (final c in _cards) ...c.tags]);
+
+  /// Tag filter pills shared by the card vault and the time river.
+  Widget _tagBar({String keyPrefix = 'tag'}) {
+    final tags = _allTags;
+    if (tags.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Wrap(spacing: 6, runSpacing: 6, children: [
+        for (final t in [null, ...tags])
+          ChoiceChip(
+            key: Key('$keyPrefix-${t ?? 'all'}'),
+            label: Text(t == null ? '全部标签' : '#$t'),
+            selected: _tag == t,
+            onSelected: (_) {
+              Haptics.tick();
+              setState(() => _tag = t);
+            },
+          ),
+      ]),
+    );
+  }
+
+  Widget _searchField(int shown) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
           color: context.hud.panel,
@@ -970,12 +1031,14 @@ class _HomePageState extends State<HomePage> {
           if (_mediaFilter != null ||
               _country != null ||
               _slot != null ||
+              _tag != null ||
               _search.text.isNotEmpty)
             TextButton(
               onPressed: () => setState(() {
                 _mediaFilter = null;
                 _country = null;
                 _slot = null;
+                _tag = null;
                 _search.clear();
               }),
               child: const Text('重置筛选'),
@@ -1057,17 +1120,229 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _flipCard(SimCard card) => FlipSimCard(
+  /// 120-day time river: deadlines and reminder points on one axis; tap a
+  /// point to jump to its card.
+  Widget _riverTile() {
+    final h = context.hud;
+    final cards = _tag == null
+        ? _cards
+        : _cards.where((c) => c.tags.contains(_tag)).toList();
+    final events = buildTimeRiver(cards);
+    final fmt = DateFormat('MM-dd');
+    Color colorOf(RiverEvent e) => e.kind == RiverKind.deadline
+        ? h.tierColor(e.card.urgency())
+        : brandColor(e.card, h);
+    return _BentoTile(key: const Key('time-river'), children: [
+      Row(children: [
+        Expanded(
+            child: HudLabel('05 / Time River · $riverDays 天', color: h.sky)),
+        Text('${events.length} 个节点',
+            style: Hud.mono.copyWith(fontSize: 11, color: h.muted)),
+      ]),
+      _tagBar(keyPrefix: 'river-tag'),
+      const SizedBox(height: 10),
+      SizedBox(
+        height: 34,
+        child: LayoutBuilder(builder: (context, box) {
+          final w = box.maxWidth;
+          return Stack(clipBehavior: Clip.none, children: [
+            Positioned(
+                left: 0,
+                right: 0,
+                top: 16,
+                child: Container(height: 2, color: h.line)),
+            for (final d in [0, 30, 60, 90, 120])
+              Positioned(
+                left: d == riverDays ? null : (w - 1) * d / riverDays,
+                right: d == riverDays ? 0 : null,
+                top: 20,
+                child: Text(d == 0 ? '今天' : '+$d',
+                    style: Hud.mono.copyWith(fontSize: 9, color: h.dim)),
+              ),
+            for (final e in events)
+              Positioned(
+                left: (w - 10) * e.days / riverDays,
+                top: e.kind == RiverKind.deadline ? 11 : 13,
+                child: Container(
+                  width: e.kind == RiverKind.deadline ? 12 : 8,
+                  height: e.kind == RiverKind.deadline ? 12 : 8,
+                  decoration: BoxDecoration(
+                    shape: e.kind == RiverKind.deadline
+                        ? BoxShape.rectangle
+                        : BoxShape.circle,
+                    color: colorOf(e),
+                    border: Border.all(color: h.panel, width: 1.5),
+                  ),
+                ),
+              ),
+          ]);
+        }),
+      ),
+      const SizedBox(height: 6),
+      if (events.isEmpty)
+        Text('未来 $riverDays 天没有到期或提醒',
+            style: TextStyle(fontSize: 11, color: h.dim))
+      else
+        SizedBox(
+          height: 56,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: events.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final e = events[i];
+              return Pressable(
+                onTap: () => _focusCard(e.card),
+                child: Container(
+                  key: Key('river-${e.card.id}-${e.kind.name}-${e.offset}'),
+                  constraints: const BoxConstraints(
+                      minHeight: Hud.minTap, minWidth: 120),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: h.well,
+                    borderRadius: BorderRadius.circular(10),
+                    border:
+                        Border(left: BorderSide(color: colorOf(e), width: 3)),
+                  ),
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            '${fmt.format(e.date)} · ${e.days == 0 ? '今天' : '${e.days} 天后'}',
+                            style: Hud.mono.copyWith(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: colorOf(e))),
+                        Text('${e.card.carrierName} · ${e.label}',
+                            style: TextStyle(fontSize: 11, color: h.fg)),
+                      ]),
+                ),
+              );
+            },
+          ),
+        ),
+    ]);
+  }
+
+  /// Scrolls to [card] (clearing filters that hide it) and highlights it.
+  Future<void> _focusCard(SimCard card) async {
+    Haptics.tick();
+    setState(() {
+      if (!_filtered.any((c) => c.id == card.id)) {
+        _mediaFilter = null;
+        _country = null;
+        _slot = null;
+        _tag = null;
+        _search.clear();
+      }
+      _stackOpen = card.id;
+      _focused = card.id;
+    });
+    final duration = Motion.of(context, Motion.medium);
+    await WidgetsBinding.instance.endOfFrame;
+    // The desktop page is a lazy list: step down until the card is built.
+    for (var i = 0;
+        i < 40 &&
+            _cardKeys[card.id]?.currentContext == null &&
+            _desktopScroll.hasClients &&
+            _desktopScroll.position.pixels <
+                _desktopScroll.position.maxScrollExtent;
+        i++) {
+      _desktopScroll.jumpTo(math.min(_desktopScroll.position.pixels + 400,
+          _desktopScroll.position.maxScrollExtent));
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    final ctx = _cardKeys[card.id]?.currentContext;
+    if (ctx != null && ctx.mounted) {
+      await Scrollable.ensureVisible(ctx,
+          alignment: .2, duration: duration, curve: Curves.easeOutCubic);
+    }
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (mounted && _focused == card.id) setState(() => _focused = null);
+  }
+
+  Future<void> _smsRenewal(SimCard card) async {
+    final r = await Navigator.of(context).push<SmsRenewal>(
+        MaterialPageRoute(builder: (_) => SmsRenewalPage(card: card)));
+    if (r == null) return;
+    SimCard? after;
+    if (!await _persist((cards) => [
+          for (final c in cards)
+            if (c.id == card.id)
+              after = c.recordTopUp(amount: r.amount, deadline: r.deadline)
+            else
+              c
+        ])) {
+      return;
+    }
+    if (after == null) return;
+    Haptics.success();
+    _toast('${card.carrierName} 已记录充值，死线 '
+        '${DateFormat('yyyy-MM-dd').format(after!.nextDeadlineDate)}');
+  }
+
+  /// Long-press / right-click on a slot: name the profile living there.
+  Future<void> _renameSlot(int n) async {
+    final card = _layout.slots[n];
+    if (card == null) {
+      _toast('槽位 #$n 还没有 Profile，先写入再起昵称');
+      return;
+    }
+    Haptics.tick();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _SlotNicknameDialog(slot: n, card: card),
+    );
+    if (name == null || name.trim() == card.profileName) return;
+    if (await _persist((cards) => [
+          for (final c in cards)
+            c.id == card.id ? c.copyWith(profileName: name.trim()) : c
+        ])) {
+      _toast(
+          name.trim().isEmpty ? '已清除槽位 #$n 昵称' : '槽位 #$n 命名为「${name.trim()}」');
+    }
+  }
+
+  Future<void> _openSettings() => showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setSheet) => SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              SwitchListTile(
+                key: const Key('privacy-switch'),
+                title: const Text('提醒隐私：隐藏完整号码'),
+                subtitle: const Text('开启后，ICS 日历的标题、描述和提醒里只显示号码尾号 4 位'),
+                value: _maskNumbers,
+                onChanged: (v) async {
+                  setState(() => _maskNumbers = v);
+                  setSheet(() {});
+                  final p = await SharedPreferences.getInstance();
+                  await p.setBool(privacyPrefsKey, v);
+                },
+              ),
+              const SizedBox(height: 12),
+            ]),
+          ),
+        ),
+      );
+
+  Widget _flipCard(SimCard card) => KeyedSubtree(
+      key: _cardKeys.putIfAbsent(card.id, GlobalKey.new),
+      child: FlipSimCard(
         key: ValueKey('flip-card-${card.id}'),
         card: card,
-        highlighted: _slot != null,
+        highlighted: _slot != null || _focused == card.id,
+        onSmsRenewal: () => _smsRenewal(card),
         onCheckIn: () => _checkIn(card),
         onEdit: () => _openForm(initial: card),
         onDelete: () => _delete(card),
         onExportIcs: () => _exportIcs([
           card
         ], 'SIMVault_${card.carrierName}_${card.nextDeadlineDate.toIso8601String().substring(0, 10)}.ics'),
-      );
+      ));
 
   Widget _gallery(List<SimCard> cards) {
     if (_cards.isEmpty) return _emptyVault();
@@ -1390,6 +1665,9 @@ List<String> describeEdit(SimCard a, SimCard b) => [
           a.billingCycle != b.billingCycle)
         '资费',
       if (a.balance != b.balance) '余额',
+      if (a.tags.join('|') != b.tags.join('|')) '标签',
+      if (a.reminderOffsets.join('|') != b.reminderOffsets.join('|')) '提醒',
+      if (a.profileName != b.profileName) 'Profile 昵称',
       if (a.estkSlotNumber != b.estkSlotNumber ||
           a.hostName != b.hostName ||
           a.slotDetail != b.slotDetail ||
@@ -1435,4 +1713,46 @@ class _BentoTile extends StatelessWidget {
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: children),
       ));
+}
+
+/// Owns its text controller so it outlives the dialog's exit animation.
+class _SlotNicknameDialog extends StatefulWidget {
+  const _SlotNicknameDialog({required this.slot, required this.card});
+
+  final int slot;
+  final SimCard card;
+
+  @override
+  State<_SlotNicknameDialog> createState() => _SlotNicknameDialogState();
+}
+
+class _SlotNicknameDialogState extends State<_SlotNicknameDialog> {
+  late final _field = TextEditingController(text: widget.card.profileName);
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text('槽位 #${widget.slot} 昵称 · ${widget.card.carrierName}'),
+        content: TextField(
+          key: const Key('slot-nickname-field'),
+          controller: _field,
+          autofocus: true,
+          maxLength: 12,
+          decoration: const InputDecoration(hintText: '如：工作号'),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          FilledButton(
+              key: const Key('slot-nickname-save'),
+              onPressed: () => Navigator.pop(context, _field.text),
+              child: const Text('保存')),
+        ],
+      );
 }

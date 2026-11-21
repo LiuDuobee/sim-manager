@@ -8,6 +8,7 @@ import '../../models/sim_card.dart';
 import '../hud/hud_theme.dart';
 import '../hud/motion.dart';
 import 'brand.dart';
+import 'show_number_page.dart';
 
 const chamferSize = 28.0;
 
@@ -75,6 +76,7 @@ class FlipSimCard extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onExportIcs,
+    this.onSmsRenewal,
     this.highlighted = false,
   });
 
@@ -83,6 +85,9 @@ class FlipSimCard extends StatefulWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onExportIcs;
+
+  /// Opens the paste-an-SMS renewal sheet; hidden when null.
+  final VoidCallback? onSmsRenewal;
   final bool highlighted;
 
   @override
@@ -190,6 +195,7 @@ class FlipSimCardState extends State<FlipSimCard>
                     onEdit: widget.onEdit,
                     onDelete: widget.onDelete,
                     onFlip: toggle,
+                    onSmsRenewal: widget.onSmsRenewal,
                   ),
                 );
           return Transform(
@@ -414,7 +420,11 @@ class _Front extends StatelessWidget {
       Wrap(spacing: 6, runSpacing: 4, children: [
         _Tag('${card.hostName} · ${card.slotDetail}'),
         if (card.estkSlotNumber != null)
-          _Tag('eSTK #${card.estkSlotNumber}', color: context.hud.amber),
+          _Tag(
+              'eSTK #${card.estkSlotNumber}'
+              '${card.profileName.isEmpty ? '' : ' · ${card.profileName}'}',
+              color: context.hud.amber),
+        for (final t in card.tags) _Tag('#$t', color: context.hud.emerald),
       ]),
       const Spacer(),
       Row(children: [
@@ -442,6 +452,14 @@ class _Front extends StatelessWidget {
       Row(children: [
         _smallButton('保号打卡', onCheckIn,
             key: Key('checkin-${card.id}'), color: context.hud.emerald),
+        const SizedBox(width: 6),
+        _smallButton(
+            '出示',
+            () => Navigator.of(context).push(MaterialPageRoute(
+                fullscreenDialog: true,
+                builder: (_) => ShowNumberPage(card: card))),
+            key: Key('show-${card.id}'),
+            color: context.hud.sky),
         const Spacer(),
         _smallButton('翻面 ↻', onFlip, key: Key('flip-${card.id}')),
       ]),
@@ -460,6 +478,7 @@ class _Back extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onFlip,
+    this.onSmsRenewal,
   });
 
   final SimCard card;
@@ -470,6 +489,7 @@ class _Back extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onFlip;
+  final VoidCallback? onSmsRenewal;
 
   String _mask(String v) => secretsVisible ? (v.isEmpty ? '—' : v) : '••••';
 
@@ -556,6 +576,9 @@ class _Back extends StatelessWidget {
             key: Key('back-checkin-${card.id}'), color: context.hud.emerald),
         _smallButton('导出 .ics', onExportIcs,
             key: Key('ics-${card.id}'), color: context.hud.sky),
+        if (onSmsRenewal != null)
+          _smallButton('短信录入', onSmsRenewal!,
+              key: Key('sms-${card.id}'), color: context.hud.amber),
         _smallButton('编辑', onEdit, key: Key('edit-${card.id}')),
         _smallButton('归档', onDelete,
             key: Key('delete-${card.id}'), color: context.hud.rose),
