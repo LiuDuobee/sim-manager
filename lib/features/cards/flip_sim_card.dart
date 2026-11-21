@@ -539,6 +539,9 @@ class _Back extends StatelessWidget {
             kv('规则',
                 '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天 · 年 ${card.currency} ${card.annualCost.toStringAsFixed(card.annualCost % 1 == 0 ? 0 : 2)}',
                 maxLines: 1),
+            kv('动作',
+                card.keepAliveAction.isEmpty ? '未设置动作' : card.keepAliveAction,
+                maxLines: 1),
             kv(
                 '护照',
                 card.events.isEmpty

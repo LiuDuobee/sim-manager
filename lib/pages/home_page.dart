@@ -1143,8 +1143,7 @@ class _HomePageState extends State<HomePage> {
                   label: const Text('从 JSON 备份导入')),
               TextButton(
                   key: const Key('empty-samples'),
-                  onPressed: () =>
-                      _persist((_) => _freshSamples()),
+                  onPressed: () => _persist((_) => _freshSamples()),
                   child: const Text('载入示例卡')),
             ]),
       ]),
