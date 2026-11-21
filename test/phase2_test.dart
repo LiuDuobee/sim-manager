@@ -122,6 +122,13 @@ void main() {
           (e) => e.card.id == 'sim-us-tmobile' && e.kind == RiverKind.reminder);
       expect(tmo.days, 12 - 3);
       expect(tmo.label, '提前 3 天提醒 · 去充值');
+      // A deadline past 120 days still shows reminders inside the window.
+      final far = cards.first.copyWith(
+          nextDeadlineDate: addDays(dateOnly(now), 130), reminderOffsets: [30]);
+      final farRiver = buildTimeRiver([far], now: now);
+      expect(farRiver, hasLength(1));
+      expect(farRiver.single.kind, RiverKind.reminder);
+      expect(farRiver.single.days, 100);
     });
 
     testWidgets('Bento tile tapping an event focuses the card', (tester) async {
@@ -151,6 +158,14 @@ void main() {
       final bad = '${iccid.substring(0, 19)}${(int.parse(iccid[19]) + 1) % 10}';
       expect(extractIccid(bad), isNull);
       expect(extractIccid('hello'), isNull);
+      // A 20-digit run that fails Luhn is not shortened to 19 digits.
+      final body19 = withCheckDigit('898600123456789000');
+      for (var d = 0; d < 10; d++) {
+        if (!luhnValid('$body19$d')) {
+          expect(extractIccid('$body19$d'), isNull);
+          break;
+        }
+      }
     });
 
     test('SMS parser finds success, amount and validity date', () {

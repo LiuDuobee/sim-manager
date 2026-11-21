@@ -36,9 +36,11 @@ List<RiverEvent> buildTimeRiver(List<SimCard> cards,
   for (final c in cards) {
     final deadline = dateOnly(c.nextDeadlineDate);
     final d = remainingDays(deadline, now: today);
-    if (d > days) continue;
-    out.add(RiverEvent(
-        c, RiverKind.deadline, d < 0 ? today : deadline, d < 0 ? 0 : d, 0));
+    // A deadline past the window can still have reminders inside it.
+    if (d <= days) {
+      out.add(RiverEvent(
+          c, RiverKind.deadline, d < 0 ? today : deadline, d < 0 ? 0 : d, 0));
+    }
     for (final o in c.reminderOffsets) {
       if (o == 0) continue;
       final at = d - o;
