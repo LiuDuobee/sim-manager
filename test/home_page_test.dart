@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -13,12 +14,12 @@ void main() {
   final atlas = decodeWorldAtlas(
       File('assets/geo/countries-110m.json').readAsStringSync());
 
-  Future<void> pumpHome(WidgetTester tester) async {
+  Future<void> pumpHome(WidgetTester tester, {SimRepository? repo}) async {
     tester.view.physicalSize = const Size(1600, 3000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-        SimVaultApp(home: HomePage(atlasLoader: () async => atlas)));
+    await tester.pumpWidget(SimVaultApp(
+        home: HomePage(repository: repo, atlasLoader: () async => atlas)));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
   }
@@ -80,6 +81,21 @@ void main() {
     expect(mirror.transform.storage[0], closeTo(-1, 1e-9)); // pre-rotated π
   });
 
+  testWidgets('overlapping check-ins both persist', (tester) async {
+    await pumpHome(tester, repo: _SlowSaveRepository());
+    const ids = ['sim-us-tmobile', 'sim-cn-cmcc'];
+    for (final id in ids) {
+      await tester.tap(find.byKey(Key('checkin-$id')));
+    }
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    final today = dateOnly(DateTime.now());
+    final saved = await stored();
+    for (final id in ids) {
+      expect(saved.firstWhere((c) => c.id == id).lastKeepAliveDate, today);
+    }
+  });
+
   testWidgets('check-in, delete and add persist locally', (tester) async {
     await pumpHome(tester);
     const id = 'sim-us-tmobile';
@@ -115,4 +131,120 @@ void main() {
     expect(saved.estkSlotNumber, 5);
     expect(saved.mediaType, MediaType.programmable);
   });
+
+  testWidgets('form blocks saving a negative cycle cost', (tester) async {
+    await pumpHome(tester);
+    final before = (await stored()).length;
+    await tester.tap(find.byKey(const Key('add-card')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(find.byKey(const Key('field-carrier')), 'Neg');
+    await tester.enterText(find.byKey(const Key('field-cost')), '-5');
+    await tester.tap(find.byKey(const Key('save-card')));
+    await tester.pump();
+    expect(find.textContaining('周期费用不能为负数'), findsOneWidget);
+    expect(find.byKey(const Key('save-card')), findsOneWidget);
+    expect((await stored()).length, before);
+
+    await tester.enterText(find.byKey(const Key('field-cost')), '5');
+    await tester.tap(find.byKey(const Key('save-card')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect((await stored()).firstWhere((c) => c.carrierName == 'Neg').cycleCost,
+        5);
+  });
+
+  test('load quarantines stored cards with negative fees', () async {
+    final good = {
+      'id': 'ok',
+      'carrierName': 'OK',
+      'nextDeadlineDate': '2027-01-01'
+    };
+    final bad = {
+      'id': 'bad',
+      'carrierName': 'Bad',
+      'cycleCost': -8,
+      'nextDeadlineDate': '2027-01-01'
+    };
+    SharedPreferences.setMockInitialValues({
+      SimRepository.storageKey: jsonEncode([good, bad]),
+      SimRepository.seededKey: true,
+    });
+    final repo = SimRepository();
+    final cards = await repo.load();
+    expect(cards.map((c) => c.id), ['ok']);
+    expect(repo.lastLoadErrors.single, contains('第 2 张卡片'));
+    expect(repo.lastLoadErrors.single, contains('不能为负数'));
+    final prefs = await SharedPreferences.getInstance();
+    expect(jsonDecode(prefs.getString(SimRepository.rejectedKey)!), [bad]);
+    expect((await SimRepository().load()).map((c) => c.id), ['ok']);
+  });
+
+  test('failed quarantine leaves the stored vault untouched', () async {
+    final stored = jsonEncode([
+      {'id': 'ok', 'nextDeadlineDate': '2027-01-01'},
+      {'id': 'bad', 'cycleCost': -8, 'nextDeadlineDate': '2027-01-01'},
+    ]);
+    SharedPreferences.setMockInitialValues({
+      SimRepository.storageKey: stored,
+      SimRepository.rejectedKey: 'not json',
+      SimRepository.seededKey: true,
+    });
+    final repo = SimRepository();
+    final cards = await repo.load();
+    expect(cards.map((c) => c.id), ['ok']);
+    expect(repo.lastLoadErrors, hasLength(1));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(SimRepository.storageKey), stored);
+    await expectLater(repo.save(cards), throwsFormatException);
+    expect(prefs.getString(SimRepository.storageKey), stored);
+    expect(prefs.getString(SimRepository.rejectedKey), 'not json');
+  });
+
+  testWidgets('failed save keeps UI and vault unchanged, no false success',
+      (tester) async {
+    final stored = jsonEncode([
+      {'id': 'ok', 'nextDeadlineDate': '2027-01-01'},
+      {'id': 'bad', 'cycleCost': -8, 'nextDeadlineDate': '2027-01-01'},
+    ]);
+    SharedPreferences.setMockInitialValues({
+      SimRepository.storageKey: stored,
+      SimRepository.rejectedKey: 'not json',
+      SimRepository.seededKey: true,
+    });
+    await pumpHome(tester);
+    await tester.pump(const Duration(seconds: 5));
+    final before = find.textContaining('剩').evaluate().length;
+    expect(find.byKey(const Key('checkin-ok')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('checkin-ok')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.textContaining('保存失败'), findsOneWidget);
+    expect(find.textContaining('保号打卡成功'), findsNothing);
+    expect(find.textContaining('剩').evaluate().length, before);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(SimRepository.storageKey), stored);
+  });
+
+  testWidgets('home page reports quarantined cards', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      SimRepository.storageKey: jsonEncode([
+        {'id': 'bad', 'monthlyFee': -1, 'nextDeadlineDate': '2027-01-01'}
+      ]),
+      SimRepository.seededKey: true,
+    });
+    await pumpHome(tester);
+    expect(find.textContaining('已拦截 1 张非法卡片'), findsOneWidget);
+  });
+}
+
+class _SlowSaveRepository extends SimRepository {
+  @override
+  Future<void> save(List<SimCard> cards) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await super.save(cards);
+  }
 }

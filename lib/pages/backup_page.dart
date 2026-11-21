@@ -9,7 +9,9 @@ class BackupPage extends StatefulWidget {
   const BackupPage({super.key, required this.cards, required this.onImport});
 
   final List<SimCard> cards;
-  final Future<void> Function(List<SimCard>) onImport;
+
+  /// Returns false when the import could not be saved.
+  final Future<bool> Function(List<SimCard>) onImport;
 
   @override
   State<BackupPage> createState() => _BackupPageState();
@@ -50,8 +52,12 @@ class _BackupPageState extends State<BackupPage> {
       ),
     );
     if (ok != true) return;
-    await widget.onImport(cards);
+    final saved = await widget.onImport(cards);
     if (!mounted) return;
+    if (!saved) {
+      _toast('导入未保存，当前卡库保持不变');
+      return;
+    }
     _toast('已导入 ${cards.length} 张卡');
     Navigator.pop(context);
   }

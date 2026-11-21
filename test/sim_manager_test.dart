@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sim_manager/main.dart';
 import 'package:sim_manager/services/estk_slots.dart';
@@ -107,6 +109,32 @@ void main() {
       expect(smart.locationType, LocationType.smartCard);
       expect(smart.billingCycle, BillingCycle.payGo);
       expect(smart.notes, contains('卡片有效期 2027-06-01'));
+    });
+
+    test('negative or non-numeric fees are rejected, not zeroed', () {
+      Map<String, dynamic> card(Map<String, dynamic> extra) =>
+          {'id': 'x', 'nextDeadlineDate': '2027-01-01', ...extra};
+      expect(
+          () => SimCard.fromJson(card({'cycleCost': -5})),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message, 'message', contains('周期费用 cycleCost 不能为负数'))));
+      expect(
+          () => SimCard.fromJson(card({'monthlyFee': -1})),
+          throwsA(isA<FormatException>()
+              .having((e) => e.message, 'message', contains('月费 monthlyFee'))));
+      expect(() => SimCard.fromJson(card({'cycleCost': 'abc'})),
+          throwsFormatException);
+      expect(SimCard.fromJson(card({'cycleCost': 0})).cycleCost, 0);
+      expect(
+          () => SimCard.decodeList(jsonEncode([
+                card({'cycleCost': 3}),
+                card({'cycleCost': -3}),
+              ])),
+          throwsA(isA<FormatException>()
+              .having((e) => e.message, 'message', startsWith('第 2 张卡片'))));
+      expect(feeError(-0.01, '周期费用'), contains('不能为负数'));
+      expect(feeError(double.infinity, '周期费用'), isNotNull);
+      expect(feeError(12, '周期费用'), isNull);
     });
 
     test('rejects malformed input', () {

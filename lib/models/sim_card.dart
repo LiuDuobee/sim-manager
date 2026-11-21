@@ -91,6 +91,15 @@ UrgencyTier urgencyTierFor(int days) {
   return UrgencyTier.ok;
 }
 
+/// Fee fields (cycle cost, legacy monthly fee) must be finite and ≥ 0.
+/// Returns a user-facing error, or null when [value] is acceptable.
+String? feeError(num? value, String label) {
+  if (value == null) return null;
+  if (!value.isFinite) return '$label必须是有限数字';
+  if (value < 0) return '$label不能为负数（当前 $value）';
+  return null;
+}
+
 DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
 /// Calendar-day arithmetic that stays at local midnight across DST changes.
@@ -311,6 +320,15 @@ class SimCard {
       final tag = '卡片有效期 ${_ymd(legacyExpiry)}';
       if (!notes.contains(tag)) notes = notes.isEmpty ? tag : '$notes\n$tag';
     }
+    for (final (key, label) in const [
+      ('cycleCost', '周期费用 cycleCost '),
+      ('monthlyFee', '月费 monthlyFee '),
+    ]) {
+      final raw = json[key];
+      if (raw != null && raw is! num) throw FormatException('$label必须是数字');
+      final error = feeError(raw as num?, label);
+      if (error != null) throw FormatException(error);
+    }
     final savedCost = (json['cycleCost'] as num?)?.toDouble();
     final monthlyFee = (json['monthlyFee'] as num?)?.toDouble();
     // v1 editors saved cycleCost 0 by default next to the real monthlyFee.
@@ -366,9 +384,45 @@ class SimCard {
     final decoded = jsonDecode(raw);
     final list = decoded is Map<String, dynamic> ? decoded['cards'] : decoded;
     if (list is! List) throw const FormatException('JSON 顶层必须是卡片数组');
-    return list
-        .map((e) => SimCard.fromJson(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    return [
+      for (var i = 0; i < list.length; i++)
+        _indexed(i, () => SimCard.fromJson(_asMap(list[i], i))),
+    ];
+  }
+
+  /// Like [decodeList] but keeps going past invalid records, returning them
+  /// (raw) with their errors so callers can quarantine instead of dropping.
+  static ({List<SimCard> cards, List<Object?> rejected, List<String> errors})
+      decodeListPartial(String raw) {
+    final decoded = jsonDecode(raw);
+    final list = decoded is Map<String, dynamic> ? decoded['cards'] : decoded;
+    if (list is! List) throw const FormatException('JSON 顶层必须是卡片数组');
+    final cards = <SimCard>[], rejected = <Object?>[], errors = <String>[];
+    for (var i = 0; i < list.length; i++) {
+      try {
+        cards.add(_indexed(i, () => SimCard.fromJson(_asMap(list[i], i))));
+      } on FormatException catch (e) {
+        rejected.add(list[i]);
+        errors.add(e.message);
+      }
+    }
+    return (cards: cards, rejected: rejected, errors: errors);
+  }
+
+  static Map<String, dynamic> _asMap(Object? e, int i) => e is Map
+      ? Map<String, dynamic>.from(e)
+      : throw FormatException('第 ${i + 1} 张卡片不是 JSON 对象');
+
+  /// Runs [decode] for record [i], prefixing any error with the record index.
+  static SimCard _indexed(int i, SimCard Function() decode) {
+    try {
+      return decode();
+    } on FormatException catch (e) {
+      if (e.message.startsWith('第 ')) rethrow;
+      throw FormatException('第 ${i + 1} 张卡片: ${e.message}');
+    } on TypeError catch (e) {
+      throw FormatException('第 ${i + 1} 张卡片字段类型错误: $e');
+    }
   }
 }
 
