@@ -39,9 +39,9 @@ extension LocationTypeLabel on LocationType {
         LocationType.drawer => 'Drawer',
       };
 
-  static LocationType parse(String? raw) => switch (raw) {
-        'SmartCard' => LocationType.smartCard,
-        'Drawer' => LocationType.drawer,
+  static LocationType parse(String? raw) => switch (raw?.toLowerCase()) {
+        'smartcard' => LocationType.smartCard,
+        'drawer' || 'binder' => LocationType.drawer,
         _ => LocationType.device,
       };
 }
@@ -61,9 +61,9 @@ extension BillingCycleLabel on BillingCycle {
         BillingCycle.payGo => 'PayGo',
       };
 
-  static BillingCycle parse(String? raw) => switch (raw) {
-        'Yearly' => BillingCycle.yearly,
-        'PayGo' => BillingCycle.payGo,
+  static BillingCycle parse(String? raw) => switch (raw?.toLowerCase()) {
+        'yearly' => BillingCycle.yearly,
+        'paygo' => BillingCycle.payGo,
         _ => BillingCycle.monthly,
       };
 }
