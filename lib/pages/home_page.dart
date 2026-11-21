@@ -1290,30 +1290,10 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     Haptics.tick();
-    final field = TextEditingController(text: card.profileName);
     final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('槽位 #$n 昵称 · ${card.carrierName}'),
-        content: TextField(
-          key: const Key('slot-nickname-field'),
-          controller: field,
-          autofocus: true,
-          maxLength: 12,
-          decoration: const InputDecoration(hintText: '如：工作号'),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(
-              key: const Key('slot-nickname-save'),
-              onPressed: () => Navigator.pop(ctx, field.text),
-              child: const Text('保存')),
-        ],
-      ),
+      builder: (_) => _SlotNicknameDialog(slot: n, card: card),
     );
-    field.dispose();
     if (name == null || name.trim() == card.profileName) return;
     if (await _persist((cards) => [
           for (final c in cards)
@@ -1732,4 +1712,46 @@ class _BentoTile extends StatelessWidget {
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: children),
       ));
+}
+
+/// Owns its text controller so it outlives the dialog's exit animation.
+class _SlotNicknameDialog extends StatefulWidget {
+  const _SlotNicknameDialog({required this.slot, required this.card});
+
+  final int slot;
+  final SimCard card;
+
+  @override
+  State<_SlotNicknameDialog> createState() => _SlotNicknameDialogState();
+}
+
+class _SlotNicknameDialogState extends State<_SlotNicknameDialog> {
+  late final _field = TextEditingController(text: widget.card.profileName);
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text('槽位 #${widget.slot} 昵称 · ${widget.card.carrierName}'),
+        content: TextField(
+          key: const Key('slot-nickname-field'),
+          controller: _field,
+          autofocus: true,
+          maxLength: 12,
+          decoration: const InputDecoration(hintText: '如：工作号'),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          FilledButton(
+              key: const Key('slot-nickname-save'),
+              onPressed: () => Navigator.pop(context, _field.text),
+              child: const Text('保存')),
+        ],
+      );
 }
