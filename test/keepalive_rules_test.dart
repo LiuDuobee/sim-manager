@@ -308,6 +308,26 @@ void main() {
       expect(find.byKey(const Key('archive-toggle')), findsNothing);
     });
 
+    for (final width in [1080.0, 945.0]) {
+      testWidgets('phone back face fits after a check-in (${width ~/ 2.625}dp)',
+          (tester) async {
+        tester.view.physicalSize = Size(width, 2400);
+        tester.view.devicePixelRatio = 2.625;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+            SimVaultApp(home: HomePage(atlasLoader: () async => atlas)));
+        await frames(tester, 2);
+        const id = 'sim-us-tmobile';
+        await tester.ensureVisible(find.byKey(const Key('flip-$id')));
+        await tester.tap(find.byKey(const Key('checkin-$id')));
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('flip-$id')));
+        await frames(tester, 7);
+        expect(find.byKey(const Key('passport-$id')), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
     testWidgets('bento shows the yearly cost per currency', (tester) async {
       await pumpHome(tester);
       expect(tester.widget<Text>(find.byKey(const Key('annual-cost'))).data,

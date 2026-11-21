@@ -417,7 +417,7 @@ class _Back extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final last = card.lastKeepAliveDate;
-    Widget kv(String k, String v) => Padding(
+    Widget kv(String k, String v, {int maxLines = 2}) => Padding(
           padding: const EdgeInsets.only(bottom: 4),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SizedBox(
@@ -427,7 +427,7 @@ class _Back extends StatelessWidget {
                         .copyWith(fontSize: 10, color: context.hud.dim))),
             Expanded(
                 child: Text(v,
-                    maxLines: 2,
+                    maxLines: maxLines,
                     overflow: TextOverflow.ellipsis,
                     style: Hud.mono.copyWith(
                         fontSize: 11.5, fontWeight: FontWeight.w600))),
@@ -454,14 +454,16 @@ class _Back extends StatelessWidget {
       HudLabel('保号规则 · 续费护照', color: context.hud.amber),
       const SizedBox(height: 4),
       kv('规则',
-          '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天 · 年 ${card.currency} ${card.annualCost.toStringAsFixed(card.annualCost % 1 == 0 ? 0 : 2)}'),
+          '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天 · 年 ${card.currency} ${card.annualCost.toStringAsFixed(card.annualCost % 1 == 0 ? 0 : 2)}',
+          maxLines: 1),
       kv(
           '护照',
           card.events.isEmpty
               ? (last == null
                   ? '尚未打卡'
                   : '上次 ${DateFormat('yyyy-MM-dd').format(last)}')
-              : '${passportLine(card.events.first)} · 共 ${card.events.length} 条'),
+              : '${passportLine(card.events.first)} · 共 ${card.events.length} 条',
+          maxLines: 1),
       const Spacer(),
       Wrap(spacing: 6, runSpacing: Hud.isCompact(context) ? 0 : 6, children: [
         _smallButton('保号打卡', onCheckIn,
