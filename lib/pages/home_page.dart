@@ -1054,6 +1054,14 @@ String _money(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
 List<String> describeEdit(SimCard a, SimCard b) => [
       if (a.carrierName != b.carrierName) '运营商',
       if (a.phoneNumber != b.phoneNumber) '号码',
+      if (a.countryCode != b.countryCode) '国家',
+      if (a.mediaType != b.mediaType) '介质',
+      if (a.isActive != b.isActive) '在线状态',
+      if (a.planName != b.planName) '套餐',
+      if (a.keepAliveAction != b.keepAliveAction) '保号动作',
+      if (a.rechargeUrl != b.rechargeUrl ||
+          a.carrierPresetId != b.carrierPresetId)
+        '运营商预设',
       if (a.nextDeadlineDate != b.nextDeadlineDate) '死线',
       if (a.keepAliveCycleDays != b.keepAliveCycleDays) '周期',
       if (a.keepAliveType != b.keepAliveType) '保号类型',
@@ -1073,6 +1081,9 @@ List<String> describeEdit(SimCard a, SimCard b) => [
           a.puk1 != b.puk1 ||
           a.esimLpaCode != b.esimLpaCode)
         '卡背机密',
+      if (a.boundServices.join('\n') != b.boundServices.join('\n'))
+        '绑定服务',
+      if (a.notes != b.notes) '备注',
     ];
 
 const _greyscale = ColorFilter.matrix([
