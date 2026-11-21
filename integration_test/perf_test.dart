@@ -34,7 +34,7 @@ void main() {
           tester.state<ScrollableState>(find.byType(Scrollable).first).position;
       for (var i = 0; i < 20 && flip.evaluate().isEmpty; i++) {
         pos.jumpTo(pos.pixels + 400);
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
       }
       await tester.ensureVisible(flip);
       for (var f = 0; f < 20; f++) {
