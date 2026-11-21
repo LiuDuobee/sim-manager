@@ -85,6 +85,21 @@ void main() {
           closeTo(0.3 * 365 / 180, 1e-9));
     });
 
+    test('PayGo monthly cost follows the keep-alive cycle', () {
+      final ais = card(
+          billing: BillingCycle.payGo, cost: 10, cycle: 30, currency: 'THB');
+      expect(ais.monthlyCny, closeTo(ais.annualCny / 12, 1e-9));
+      expect(ais.monthlyCny, closeTo(10 * .2 * 365 / 30 / 12, 1e-9));
+    });
+
+    test('edit log names rule-only changes', () {
+      final a = card();
+      expect(describeEdit(a, a.copyWith(keepAliveAction: '发短信')), ['保号动作']);
+      expect(describeEdit(a, a.copyWith(rechargeUrl: 'https://x')), ['运营商预设']);
+      expect(describeEdit(a, a.copyWith(planName: 'p')), ['套餐']);
+      expect(describeEdit(a, a), isEmpty);
+    });
+
     test('grouped by currency, zero-cost cards skipped', () {
       final byCurrency = annualCostByCurrency(buildSeedCards(now));
       expect(byCurrency, {'CNY': 96, 'HKD': 6, 'JPY': 12936, 'USD': 36});
@@ -285,6 +300,25 @@ void main() {
       expect(restored.estkSlotNumber, 2);
       expect(await archive(), isEmpty);
       expect(find.text('占用 3 / 15 槽位'), findsOneWidget);
+
+      // A double tap on restore while saving must not duplicate the card.
+      await tester.ensureVisible(find.byKey(const Key('flip-$id')));
+      await tester.tap(find.byKey(const Key('flip-$id')));
+      await frames(tester, 7);
+      await tester.tap(find.byKey(const Key('delete-$id')));
+      await frames(tester, 3);
+      await tester.tap(find.byKey(const Key('confirm-delete')));
+      await frames(tester, 3);
+      await tester.ensureVisible(find.byKey(const Key('archive-toggle')));
+      if (find.byKey(const Key('restore-$id')).evaluate().isEmpty) {
+        await tester.tap(find.byKey(const Key('archive-toggle')));
+        await tester.pump();
+      }
+      await tester.tap(find.byKey(const Key('restore-$id')));
+      await tester.tap(find.byKey(const Key('restore-$id')));
+      await frames(tester, 3);
+      expect((await vault()).where((c) => c.id == id).length, 1);
+      expect(await archive(), isEmpty);
 
       // Archive again, then delete for good.
       await tester.ensureVisible(find.byKey(const Key('flip-$id')));
