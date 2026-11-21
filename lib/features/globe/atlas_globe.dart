@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../hud/hud_theme.dart';
+import '../hud/motion.dart';
 import 'globe_controller.dart';
 import 'orthographic.dart';
 import 'topojson.dart';
@@ -22,13 +23,17 @@ class GlobeNode {
     required this.lat,
     required this.count,
     required this.color,
+    this.brand,
   });
 
   final String code;
   final double lon;
   final double lat;
   final int count;
+
+  /// Urgency colour (halo); [brand] fills the core when known.
   final Color color;
+  final Color? brand;
 }
 
 /// Node markers that survive backface culling for the given projection.
@@ -183,7 +188,14 @@ class _AtlasGlobeState extends State<AtlasGlobe>
                       _lastScale = d.scale;
                     }
                   }
-                  ..onEnd = (_) => c.setDragging(false),
+                  ..onEnd = (d) {
+                    c.setDragging(false);
+                    if (_maxPointers == 1 && !Motion.reduced(context)) {
+                      final r = projectionFor(c, size).radius;
+                      final v = d.velocity.pixelsPerSecond / r * 180 / math.pi;
+                      c.fling(v.dx, v.dy);
+                    }
+                  },
               ),
             },
             child: CustomPaint(
@@ -331,7 +343,7 @@ class GlobePainter extends CustomPainter {
     final selected = node.code == selectedCode;
     canvas.drawCircle(p, selected ? 11 : 8,
         Paint()..color = node.color.withValues(alpha: .25));
-    canvas.drawCircle(p, 4.5, Paint()..color = node.color);
+    canvas.drawCircle(p, 4.5, Paint()..color = node.brand ?? node.color);
     canvas.drawCircle(
         p,
         4.5,
