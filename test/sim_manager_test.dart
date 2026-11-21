@@ -80,6 +80,35 @@ void main() {
       expect(cards.single.cycleCost, 5);
     });
 
+    test('migrates v1 enum names, monthlyFee and expiryDate', () {
+      final card = SimCard.fromJson({
+        'id': 'v1',
+        'nickname': 'Old',
+        'operatorName': 'giffgaff',
+        'type': 'programmable',
+        'locationType': 'binder',
+        'billingCycle': 'yearly',
+        'cycleCost': 0,
+        'monthlyFee': 12.5,
+        'nextRenewalDate': '2027-03-01T00:00:00.000',
+        'expiryDate': '2027-01-15T00:00:00.000',
+      });
+      expect(card.locationType, LocationType.drawer);
+      expect(card.billingCycle, BillingCycle.yearly);
+      expect(card.cycleCost, 12.5);
+      expect(card.nextDeadlineDate, DateTime(2027, 1, 15));
+      final smart = SimCard.fromJson({
+        'id': 'v1b',
+        'locationType': 'smartCard',
+        'billingCycle': 'payGo',
+        'nextRenewalDate': '2027-03-01T00:00:00.000',
+        'expiryDate': '2027-06-01T00:00:00.000',
+      });
+      expect(smart.locationType, LocationType.smartCard);
+      expect(smart.billingCycle, BillingCycle.payGo);
+      expect(smart.notes, contains('卡片有效期 2027-06-01'));
+    });
+
     test('rejects malformed input', () {
       expect(() => SimCard.decodeList('{"foo":1}'), throwsFormatException);
     });
