@@ -141,7 +141,8 @@ class _UpdateDownloadDialogState extends State<UpdateDownloadDialog> {
       switch (out.status) {
         case InstallStatus.started:
           _done('已打开系统安装器，按提示完成安装。若提示「与现有软件包冲突」，说明新旧安装包签名不同：'
-              '请先用「JSON 备份」导出数据，卸载旧版后再安装，然后导入备份。');
+              '请先在「JSON 备份」里点「复制 JSON」，把内容存到 App 以外的地方（如备忘录、发给自己），'
+              '卸载旧版后再安装，然后粘贴导入。卸载会清除 App 内保存的备份文件。');
         case InstallStatus.extracted:
           _done('新版已解压到 ${out.path}，并已打开该文件夹。'
               '请关闭当前 SIMVault，运行文件夹里的 sim_manager.exe（不会自动替换当前程序）。');
