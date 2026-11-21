@@ -34,8 +34,9 @@ void main() {
     }))!;
   }
 
-  Future<void> pumpHome(WidgetTester tester, {SimRepository? repo}) async {
-    tester.view.physicalSize = const Size(1600, 3000);
+  Future<void> pumpHome(WidgetTester tester,
+      {SimRepository? repo, Size size = const Size(1600, 3000)}) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(SimVaultApp(
@@ -103,7 +104,8 @@ void main() {
 
   testWidgets('wheel zoom is clamped to 1.0x-2.0x and stays inside the stage',
       (tester) async {
-    await pumpHome(tester);
+    // Short window so the page itself is scrollable behind the globe.
+    await pumpHome(tester, size: const Size(1600, 1000));
     final c = tester.widget<HudStage>(find.byType(HudStage)).controller;
     c.spinning = false;
     final globe = find.byKey(const Key('atlas-globe'));
@@ -116,7 +118,9 @@ void main() {
       await tester.pump();
     }
 
+    final globeTop = tester.getTopLeft(globe);
     await wheel(100, 10);
+    expect(tester.getTopLeft(globe), globeTop, reason: 'page must not scroll');
     expect(c.zoom, GlobeController.minZoom);
     expect(c.zoom, 1.0);
     final atMin = await screenPixels(tester);
