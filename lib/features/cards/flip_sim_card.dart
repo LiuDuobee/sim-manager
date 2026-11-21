@@ -1,14 +1,15 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/sim_card.dart';
 import '../hud/hud_theme.dart';
+import '../hud/motion.dart';
+import 'brand.dart';
 
 const chamferSize = 28.0;
-const flipDuration = Duration(milliseconds: 650);
-const flipCurve = Cubic(0.22, 1, 0.36, 1);
 
 /// Equivalent of `clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 28px,
 /// 100% 100%, 0 100%)`: a true 45° cut on the top-right corner.
@@ -89,29 +90,64 @@ class FlipSimCard extends StatefulWidget {
 }
 
 class FlipSimCardState extends State<FlipSimCard>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
+  /// 0 = front, 1 = back. Driven by a spring so a second tap mid-flip turns
+  /// back from where the card is, keeping its velocity (settles ≈ 650 ms).
   late final AnimationController _flip =
-      AnimationController(vsync: this, duration: flipDuration);
-  late final Animation<double> _angle = CurvedAnimation(
-      parent: _flip, curve: flipCurve, reverseCurve: flipCurve.flipped);
+      AnimationController.unbounded(vsync: this);
+  late final AnimationController _stamp = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1600));
   bool _secretsVisible = false;
+  bool _flipped = false;
 
-  bool get isFlipped =>
-      _flip.status == AnimationStatus.forward ||
-      _flip.status == AnimationStatus.completed;
+  bool get isFlipped => _flipped;
 
-  void toggle() => isFlipped ? _flip.reverse() : _flip.forward();
+  void toggle() {
+    _flipped = !_flipped;
+    final to = _flipped ? 1.0 : 0.0;
+    Haptics.tick();
+    if (Motion.reduced(context)) {
+      _flip.value = to;
+      return;
+    }
+    _flip.animateWith(
+        SpringSimulation(Motion.flipSpring, _flip.value, to, _flip.velocity));
+  }
+
+  @override
+  void didUpdateWidget(FlipSimCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final events = widget.card.events;
+    final checkedIn = widget.card.id == oldWidget.card.id &&
+        events.length > oldWidget.card.events.length &&
+        (events.first.type == CardEventType.checkIn ||
+            events.first.type == CardEventType.topUp);
+    if (checkedIn) {
+      Haptics.success();
+      if (Motion.reduced(context)) {
+        _stamp.value = .5;
+        _stamp.animateTo(1, duration: const Duration(milliseconds: 1200));
+      } else {
+        _stamp.forward(from: 0);
+      }
+    }
+  }
 
   @override
   void dispose() {
     _flip.dispose();
+    _stamp.dispose();
     super.dispose();
   }
 
-  // A SIM card is a physical, dark object: it keeps its dark face and dark
-  // HUD palette in both app themes.
+  // A SIM card is a physical, dark object of fixed size: it keeps its dark
+  // face and palette in both app themes, and its print grows with the
+  // system text size only up to 1.15× (the passport page shows everything
+  // at full scale).
   @override
-  Widget build(BuildContext context) => Theme(
+  Widget build(BuildContext context) => MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: Theme(
         data: buildHudTheme(HudPalette.dark),
         child: DefaultTextStyle.merge(
           style: const TextStyle(color: Colors.white),
@@ -120,7 +156,7 @@ class FlipSimCardState extends State<FlipSimCard>
             child: Builder(builder: _build),
           ),
         ),
-      );
+      ));
 
   Widget _build(BuildContext context) {
     final card = widget.card;
@@ -130,9 +166,9 @@ class FlipSimCardState extends State<FlipSimCard>
     return GestureDetector(
       onTap: toggle,
       child: AnimatedBuilder(
-        animation: _angle,
+        animation: _flip,
         builder: (context, _) {
-          final angle = _angle.value * math.pi;
+          final angle = _flip.value * math.pi;
           final showFront = angle <= math.pi / 2;
           final face = showFront
               ? _Front(
@@ -172,12 +208,17 @@ class FlipSimCardState extends State<FlipSimCard>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: showFront
-                          ? cardGradient(card.countryCode)
+                          ? brandGradient(card) ??
+                              cardGradient(card.countryCode)
                           : const [Color(0xFF0F172A), Color(0xFF020617)],
                     ),
                   ),
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-                  child: face,
+                  child: Stack(fit: StackFit.expand, children: [
+                    face,
+                    if (showFront)
+                      _Stamp(animation: _stamp, key: Key('stamp-${card.id}')),
+                  ]),
                 ),
               ),
             ),
@@ -306,25 +347,36 @@ class _Front extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: const EdgeInsets.only(right: chamferSize - 6),
-        child: Row(children: [
-          Text(card.countryCode,
-              style: Hud.mono.copyWith(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: context.hud.muted)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(card.carrierName,
-                overflow: TextOverflow.ellipsis,
-                style:
-                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
-          ),
-          _Tag(card.mediaType.label,
-              color: context.hud.mediaColor(card.mediaType)),
-          const SizedBox(width: 6),
-          _Tag(card.isActive ? 'ONLINE' : 'STORED',
-              color: card.isActive ? context.hud.emerald : context.hud.sky),
-        ]),
+        child: LayoutBuilder(
+            builder: (context, box) => Row(children: [
+                  Text(card.countryCode,
+                      style: Hud.mono.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: context.hud.muted)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(card.carrierName,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w800)),
+                  ),
+                  _FitAtMost(
+                    maxWidth: box.maxWidth * .62,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        _Tag(card.mediaType.label,
+                            color: context.hud.mediaColor(card.mediaType)),
+                        const SizedBox(width: 6),
+                        _Tag(card.isActive ? 'ONLINE' : 'STORED',
+                            color: card.isActive
+                                ? context.hud.emerald
+                                : context.hud.sky),
+                      ]),
+                    ),
+                  ),
+                ])),
       ),
       Text(card.planName,
           overflow: TextOverflow.ellipsis,
@@ -332,7 +384,14 @@ class _Front extends StatelessWidget {
       const SizedBox(height: 14),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SimChip(),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
+        Hero(
+            tag: 'ring-${card.id}',
+            child: CountdownRing(
+                key: Key('ring-${card.id}'),
+                card: card,
+                size: Hud.isCompact(context) ? 50 : 44)),
+        const SizedBox(width: 10),
         Expanded(
           child: FittedBox(
             fit: BoxFit.scaleDown,
@@ -436,35 +495,62 @@ class _Back extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: const EdgeInsets.only(right: chamferSize - 6),
-        child: Row(children: [
-          const Expanded(child: HudLabel('Security Vault · 卡背')),
-          _smallButton(
-              '护照 ${card.events.length}', () => showPassport(context, card),
-              key: Key('passport-${card.id}'), color: context.hud.amber),
-          const SizedBox(width: 6),
-          _smallButton(secretsVisible ? '隐藏机密' : '解密查看', onToggleSecrets,
-              key: Key('secrets-${card.id}')),
-        ]),
+        child: LayoutBuilder(
+            builder: (context, box) => Row(children: [
+                  Hero(
+                      tag: 'ring-${card.id}',
+                      child:
+                          CountdownRing(card: card, size: 28, showTier: false)),
+                  const SizedBox(width: 8),
+                  const Expanded(child: HudLabel('Security Vault · 卡背')),
+                  // Large text: the chips shrink to fit instead of overflowing.
+                  _FitAtMost(
+                    maxWidth: box.maxWidth * .62,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        _smallButton('护照 ${card.events.length}',
+                            () => showPassport(context, card),
+                            key: Key('passport-${card.id}'),
+                            color: context.hud.amber),
+                        const SizedBox(width: 6),
+                        _smallButton(
+                            secretsVisible ? '隐藏机密' : '解密查看', onToggleSecrets,
+                            key: Key('secrets-${card.id}')),
+                      ]),
+                    ),
+                  ),
+                ])),
       ),
       const SizedBox(height: 10),
-      kv('ICCID', card.iccid.isEmpty ? '未录入' : card.iccid),
-      kv('PIN/PUK', '${_mask(card.pin1)} / ${_mask(card.puk1)}'),
-      if (card.esimLpaCode.isNotEmpty) kv('LPA', _mask(card.esimLpaCode)),
-      const SizedBox(height: 4),
-      HudLabel('保号规则 · 续费护照', color: context.hud.amber),
-      const SizedBox(height: 4),
-      kv('规则',
-          '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天 · 年 ${card.currency} ${card.annualCost.toStringAsFixed(card.annualCost % 1 == 0 ? 0 : 2)}',
-          maxLines: 1),
-      kv(
-          '护照',
-          card.events.isEmpty
-              ? (last == null
-                  ? '尚未打卡'
-                  : '上次 ${DateFormat('yyyy-MM-dd').format(last)}')
-              : '${passportLine(card.events.first)} · 共 ${card.events.length} 条',
-          maxLines: 1),
-      const Spacer(),
+      // Scrolls only when large system text makes the details taller than
+      // the card.
+      Expanded(
+          child: SingleChildScrollView(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+            kv('ICCID', card.iccid.isEmpty ? '未录入' : card.iccid),
+            kv('PIN/PUK', '${_mask(card.pin1)} / ${_mask(card.puk1)}'),
+            if (card.esimLpaCode.isNotEmpty) kv('LPA', _mask(card.esimLpaCode)),
+            const SizedBox(height: 4),
+            HudLabel('保号规则 · 续费护照', color: context.hud.amber),
+            const SizedBox(height: 4),
+            kv('规则',
+                '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天 · 年 ${card.currency} ${card.annualCost.toStringAsFixed(card.annualCost % 1 == 0 ? 0 : 2)}',
+                maxLines: 1),
+            kv('动作',
+                card.keepAliveAction.isEmpty ? '未设置动作' : card.keepAliveAction,
+                maxLines: 1),
+            kv(
+                '护照',
+                card.events.isEmpty
+                    ? (last == null
+                        ? '尚未打卡'
+                        : '上次 ${DateFormat('yyyy-MM-dd').format(last)}')
+                    : '${passportLine(card.events.first)} · 共 ${card.events.length} 条',
+                maxLines: 1),
+          ]))),
       Wrap(spacing: 6, runSpacing: Hud.isCompact(context) ? 0 : 6, children: [
         _smallButton('保号打卡', onCheckIn,
             key: Key('back-checkin-${card.id}'), color: context.hud.emerald),
@@ -491,60 +577,169 @@ String passportLine(CardEvent e) => [
       if (e.note.isNotEmpty) e.note,
     ].join(' ');
 
-/// The full renewal passport of [card]: rules, yearly cost, top-up link and
-/// every recorded event, newest first.
-Future<void> showPassport(BuildContext context, SimCard card) {
-  // The card face forces the dark palette; the dialog follows the app theme.
-  final appTheme = Theme.of(Navigator.of(context).context);
-  return showDialog(
-      context: context,
-      builder: (_) => Theme(
-          data: appTheme,
-          child: Builder(builder: (ctx) {
-            final h = ctx.hud;
-            return AlertDialog(
-              key: const Key('passport-dialog'),
-              title: Text('续费护照 · ${card.carrierName}'),
-              content: SizedBox(
-                width: 420,
-                child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                          '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天',
-                          style: TextStyle(
-                              color: h.amber, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 4),
-                      Text(
-                          '预估年成本 ${card.currency} ${_amount(card.annualCost)} ≈ ¥${card.annualCny.toStringAsFixed(0)}',
-                          key: const Key('passport-annual'),
-                          style: Hud.mono
-                              .copyWith(fontSize: 12, color: h.emerald)),
-                      if (card.rechargeUrl.isNotEmpty)
-                        SelectableText('充值 ${card.rechargeUrl}',
-                            style:
-                                Hud.mono.copyWith(fontSize: 11, color: h.sky)),
-                      const SizedBox(height: 10),
-                      Flexible(
-                        child: card.events.isEmpty
-                            ? Text('暂无记录', style: TextStyle(color: h.dim))
-                            : ListView(shrinkWrap: true, children: [
-                                for (final e in card.events)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
-                                    child: Text(passportLine(e),
-                                        style: Hud.mono.copyWith(fontSize: 12)),
-                                  ),
-                              ]),
+/// The full renewal passport of [card] as its own page: the countdown ring
+/// flies in from the card (Hero), then rules, cost and the timeline fade up.
+Future<void> showPassport(BuildContext context, SimCard card) =>
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => PassportPage(card: card)));
+
+class PassportPage extends StatelessWidget {
+  const PassportPage({super.key, required this.card});
+
+  final SimCard card;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = context.hud;
+    Widget rise(int i, Widget child) => TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: Motion.of(context, Motion.long),
+          curve: Interval((.12 * i).clamp(0, .6).toDouble(), 1,
+              curve: Curves.easeOutCubic),
+          builder: (context, t, child) => Opacity(
+              opacity: t,
+              child: Transform.translate(
+                  offset: Offset(0, 12 * (1 - t)), child: child)),
+          child: child,
+        );
+    return Scaffold(
+      key: const Key('passport-dialog'),
+      appBar: AppBar(title: Text('续费护照 · ${card.carrierName}')),
+      body: ListView(padding: const EdgeInsets.all(20), children: [
+        Row(children: [
+          Hero(
+              tag: 'ring-${card.id}',
+              child: CountdownRing(card: card, size: 96)),
+          const SizedBox(width: 18),
+          Expanded(
+            child: rise(
+                0,
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(
+                      '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天',
+                      style: TextStyle(
+                          color: h.amber, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  Text(
+                      '预估年成本 ${card.currency} ${_amount(card.annualCost)} ≈ ¥${card.annualCny.toStringAsFixed(0)}',
+                      key: const Key('passport-annual'),
+                      style: Hud.mono.copyWith(fontSize: 12, color: h.emerald)),
+                  if (card.rechargeUrl.isNotEmpty)
+                    SelectableText('充值 ${card.rechargeUrl}',
+                        style: Hud.mono.copyWith(fontSize: 11, color: h.sky)),
+                ])),
+          ),
+        ]),
+        const SizedBox(height: 20),
+        HudLabel('时间线 · ${card.events.length} 条', color: h.muted),
+        const SizedBox(height: 10),
+        if (card.events.isEmpty)
+          Text('暂无记录', style: TextStyle(color: h.dim))
+        else
+          for (final (i, e) in card.events.indexed)
+            rise(
+                i + 1,
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 5, right: 10),
+                          child:
+                              Icon(_eventIcon(e.type), size: 14, color: h.sky),
+                        ),
+                        Expanded(
+                            child: Text(passportLine(e),
+                                style: Hud.mono.copyWith(fontSize: 12.5))),
+                      ]),
+                )),
+      ]),
+    );
+  }
+}
+
+IconData _eventIcon(CardEventType t) => switch (t) {
+      CardEventType.create => Icons.add_circle_outline,
+      CardEventType.checkIn => Icons.check_circle_outline,
+      CardEventType.topUp => Icons.payments_outlined,
+      CardEventType.edit => Icons.edit_outlined,
+      CardEventType.archive => Icons.inventory_2_outlined,
+      CardEventType.restore => Icons.unarchive_outlined,
+    };
+
+/// 「已保号」 stamp dropped on the card face after a check-in: lands with a
+/// spring overshoot, a ripple spreads, then it fades.
+class _Stamp extends StatelessWidget {
+  const _Stamp({super.key, required this.animation});
+
+  final Animation<double> animation;
+
+  static const _land = SpringCurve(Motion.snapSpring, .5);
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+        child: AnimatedBuilder(
+          animation: animation,
+          builder: (context, _) {
+            final t = animation.value;
+            if (t == 0 || t == 1) return const SizedBox.shrink();
+            final land = _land.transform((t / .3).clamp(0.0, 1.0));
+            final fade = t < .75 ? 1.0 : 1 - (t - .75) / .25;
+            final ripple = (t / .5).clamp(0.0, 1.0);
+            const color = Color(0xFF34D399);
+            return Opacity(
+              opacity: fade,
+              child: Center(
+                child: Stack(alignment: Alignment.center, children: [
+                  Container(
+                    width: 80 + 120 * ripple,
+                    height: 80 + 120 * ripple,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: color.withValues(alpha: .5 * (1 - ripple)),
+                          width: 2),
+                    ),
+                  ),
+                  Transform.rotate(
+                    angle: -.2,
+                    child: Transform.scale(
+                      scale: 1.8 - .8 * land,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xCC052E1C),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: color, width: 2.4),
+                        ),
+                        child: const Text('已保号',
+                            style: TextStyle(
+                                color: color,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 4)),
                       ),
-                    ]),
+                    ),
+                  ),
+                ]),
               ),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('关闭')),
-              ],
             );
-          })));
+          },
+        ),
+      );
+}
+
+/// Lets a row of chips take at most 62% of the row and scale down (large
+/// system text) instead of overflowing it.
+class _FitAtMost extends StatelessWidget {
+  const _FitAtMost({required this.maxWidth, required this.child});
+
+  final double maxWidth;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth), child: child);
 }

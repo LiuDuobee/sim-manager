@@ -184,7 +184,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
     await tester.tap(find.byKey(const Key('delete-$id')));
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.byKey(const Key('confirm-delete')));
+    // Archiving shows an undo bar instead of a confirm dialog: tap outside
+    // it and let it time out.
+    await tester.tapAt(const Offset(4, 4));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(seconds: 5));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('占用 2 / 15 槽位'), findsOneWidget);
     expect((await stored()).length, 4);

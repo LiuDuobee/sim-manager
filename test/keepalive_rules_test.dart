@@ -276,8 +276,6 @@ void main() {
       await frames(tester, 7);
       await tester.tap(find.byKey(const Key('delete-$id')));
       await frames(tester, 3);
-      await tester.tap(find.byKey(const Key('confirm-delete')));
-      await frames(tester, 3);
 
       expect((await vault()).map((c) => c.id), isNot(contains(id)));
       final archived = (await archive()).single;
@@ -307,8 +305,6 @@ void main() {
       await frames(tester, 7);
       await tester.tap(find.byKey(const Key('delete-$id')));
       await frames(tester, 3);
-      await tester.tap(find.byKey(const Key('confirm-delete')));
-      await frames(tester, 3);
       await tester.ensureVisible(find.byKey(const Key('archive-toggle')));
       if (find.byKey(const Key('restore-$id')).evaluate().isEmpty) {
         await tester.tap(find.byKey(const Key('archive-toggle')));
@@ -326,16 +322,12 @@ void main() {
       await frames(tester, 7);
       await tester.tap(find.byKey(const Key('delete-$id')));
       await frames(tester, 3);
-      await tester.tap(find.byKey(const Key('confirm-delete')));
-      await frames(tester, 3);
       await tester.ensureVisible(find.byKey(const Key('archive-toggle')));
       if (find.byKey(const Key('purge-$id')).evaluate().isEmpty) {
         await tester.tap(find.byKey(const Key('archive-toggle')));
         await tester.pump();
       }
       await tester.tap(find.byKey(const Key('purge-$id')));
-      await frames(tester, 3);
-      await tester.tap(find.byKey(const Key('confirm-purge')));
       await frames(tester, 3);
       expect(await archive(), isEmpty);
       expect((await vault()).map((c) => c.id), isNot(contains(id)));

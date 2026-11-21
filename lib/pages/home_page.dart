@@ -10,12 +10,15 @@ import '../features/globe/atlas_globe.dart';
 import '../features/globe/globe_controller.dart';
 import '../features/globe/topojson.dart';
 import '../features/hud/hud_stage.dart';
+import '../features/cards/brand.dart';
 import '../features/hud/hud_theme.dart';
+import '../features/hud/motion.dart';
 import '../features/settings/theme_mode.dart';
 import '../models/sim_card.dart';
 import '../services/estk_slots.dart';
 import '../services/file_export.dart';
 import '../services/ics_export.dart';
+import '../services/seed_cards.dart';
 import '../services/sim_repository.dart';
 import 'backup_page.dart';
 import 'sim_form_page.dart';
@@ -41,6 +44,8 @@ class _HomePageState extends State<HomePage> {
   List<SimCard> _cards = [];
   List<SimCard> _archive = [];
   bool _archiveOpen = false;
+  bool _stackMode = false;
+  String? _stackOpen;
   bool _loading = true;
   List<GeoCountry>? _countries;
   String? _atlasError;
@@ -120,11 +125,22 @@ class _HomePageState extends State<HomePage> {
       {bool vaultFirst = false}) {
     final result = _writes.then((_) async {
       final (cards, archive) = change(_cards, _archive);
+      var archiveWritten = false;
       try {
         if (vaultFirst && !identical(cards, _cards)) await _repo.save(cards);
-        if (!identical(archive, _archive)) await _repo.saveArchive(archive);
+        if (!identical(archive, _archive)) {
+          await _repo.saveArchive(archive);
+          archiveWritten = true;
+        }
         if (!vaultFirst && !identical(cards, _cards)) await _repo.save(cards);
       } on Object catch (e) {
+        // Roll the archive back so a failed vault write leaves storage as
+        // it was (best effort; the original error is what gets reported).
+        if (archiveWritten) {
+          try {
+            await _repo.saveArchive(_archive);
+          } on Object catch (_) {}
+        }
         if (mounted) _toast('保存失败，本地数据未改动: $e');
         return false;
       }
@@ -140,20 +156,21 @@ class _HomePageState extends State<HomePage> {
     return result;
   }
 
-  void _toast(String msg, {VoidCallback? undo}) => ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(
-      content: Text(msg),
-      behavior: SnackBarBehavior.floating,
-      duration: undo == null
-          ? const Duration(milliseconds: 4000)
-          : const Duration(seconds: 5),
-      persist: false,
-      action: undo == null
-          ? null
-          : SnackBarAction(
-              key: const Key('undo-checkin'), label: '撤销', onPressed: undo),
-    ));
+  void _toast(String msg,
+          {VoidCallback? undo, String undoKey = 'undo-checkin'}) =>
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(msg),
+          behavior: SnackBarBehavior.floating,
+          duration: undo == null
+              ? const Duration(milliseconds: 4000)
+              : const Duration(seconds: 5),
+          persist: false,
+          action: undo == null
+              ? null
+              : SnackBarAction(key: Key(undoKey), label: '撤销', onPressed: undo),
+        ));
 
   void _selectCountry(String? code) {
     setState(() => _country = code);
@@ -241,44 +258,40 @@ class _HomePageState extends State<HomePage> {
   /// Moves [card] to the archive: hidden from globe, radar, matrix and stats,
   /// its passport kept. Permanent deletion lives in the archive.
   Future<void> _delete(SimCard card) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('归档 SIM 卡'),
-        content: Text('「${card.carrierName}」将移入归档区：从地球、雷达、15 槽矩阵和统计中隐藏，'
-            '护照历史保留，可随时恢复或在归档区彻底删除。'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-              key: const Key('confirm-delete'),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('归档')),
-        ],
-      ),
-    );
-    if (ok != true) return;
     final today = dateOnly(DateTime.now());
+    SimCard? before, archived;
+    var index = 0;
     if (!await _persistBoth((cards, archive) {
-      final current = cards.where((c) => c.id == card.id).firstOrNull;
-      if (current == null) return (cards, archive);
+      index = cards.indexWhere((c) => c.id == card.id);
+      if (index < 0) return (cards, archive);
+      before = cards[index];
+      archived = before!
+          .copyWith(archivedAt: () => today)
+          .withEvent(CardEvent(at: today, type: CardEventType.archive));
       return (
         cards.where((c) => c.id != card.id).toList(),
-        [
-          current
-              .copyWith(archivedAt: () => today)
-              .withEvent(CardEvent(at: today, type: CardEventType.archive)),
-          ...archive
-        ]
+        [archived!, ...archive]
       );
     })) {
       return;
     }
+    if (before == null) return;
+    final (original, moved) = (before!, archived!);
     if (_slot != null && !_layout.slots.containsKey(_slot)) {
       setState(() => _slot = null);
     }
-    _toast('已归档 ${card.carrierName}');
+    Haptics.tick();
+    _toast('已归档 ${card.carrierName}，可在归档区恢复',
+        undoKey: 'undo-archive',
+        undo: () => _persistBoth((cards, archive) {
+              if (!archive.any((c) => identical(c, moved))) {
+                return (cards, archive);
+              }
+              return (
+                [...cards]..insert(index.clamp(0, cards.length), original),
+                archive.where((c) => !identical(c, moved)).toList()
+              );
+            }, vaultFirst: true));
   }
 
   Future<void> _restore(SimCard card) async {
@@ -315,29 +328,31 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _purge(SimCard card) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('彻底删除'),
-        content: Text('「${card.carrierName}」及其护照历史将被永久删除，无法恢复。'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-              key: const Key('confirm-purge'),
-              style: FilledButton.styleFrom(backgroundColor: context.hud.rose),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('彻底删除')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    if (!await _persistBoth((cards, archive) =>
-        (cards, archive.where((c) => c.id != card.id).toList()))) {
+    var index = -1;
+    SimCard? gone;
+    if (!await _persistBoth((cards, archive) {
+      index = archive.indexWhere((c) => c.id == card.id);
+      if (index < 0) return (cards, archive);
+      gone = archive[index];
+      return (cards, archive.where((c) => c.id != card.id).toList());
+    })) {
       return;
     }
-    _toast('已彻底删除 ${card.carrierName}');
+    if (gone == null) return;
+    final removed = gone!;
+    Haptics.tick();
+    _toast('已彻底删除 ${card.carrierName}',
+        undoKey: 'undo-purge',
+        undo: () => _persistBoth((cards, archive) {
+              if (archive.any((c) => c.id == removed.id) ||
+                  cards.any((c) => c.id == removed.id)) {
+                return (cards, archive);
+              }
+              return (
+                cards,
+                [...archive]..insert(index.clamp(0, archive.length), removed)
+              );
+            }));
   }
 
   Future<void> _exportIcs(List<SimCard> cards, String name) async {
@@ -355,7 +370,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final filtered = _filtered;
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: SafeArea(child: _Skeleton()));
     }
     if (Hud.isCompact(context)) return _mobileScaffold(filtered);
     return Scaffold(
@@ -364,6 +379,8 @@ class _HomePageState extends State<HomePage> {
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
           children: [
             _header(),
+            const SizedBox(height: 14),
+            _hero(),
             const SizedBox(height: 18),
             _hud(filtered),
             const SizedBox(height: 18),
@@ -455,6 +472,8 @@ class _HomePageState extends State<HomePage> {
                           children: [
                             _mobileHeader(),
                             const SizedBox(height: 10),
+                            _hero(),
+                            const SizedBox(height: 10),
                             _hud(filtered),
                           ])),
                   const SizedBox(height: 22),
@@ -473,10 +492,25 @@ class _HomePageState extends State<HomePage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _sectionTitle('Card Vault · 卡库',
-                                '${filtered.length} / ${_cards.length}'),
+                                '${filtered.length} / ${_cards.length}',
+                                trailing: IconButton(
+                                  key: const Key('vault-mode'),
+                                  tooltip: _stackMode ? '列表视图' : '卡叠视图',
+                                  onPressed: () {
+                                    Haptics.tick();
+                                    setState(() => _stackMode = !_stackMode);
+                                  },
+                                  icon: Icon(
+                                      _stackMode
+                                          ? Icons.view_agenda_outlined
+                                          : Icons.layers_outlined,
+                                      color: context.hud.muted),
+                                )),
                             _searchBar(filtered.length),
                             const SizedBox(height: 14),
-                            _gallery(filtered),
+                            _stackMode && filtered.isNotEmpty
+                                ? _cardStack(filtered)
+                                : _gallery(filtered),
                             _archiveSection(),
                           ])),
                 ],
@@ -522,7 +556,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _sectionTitle(String title, String meta) => Padding(
+  Widget _sectionTitle(String title, String meta, {Widget? trailing}) =>
+      Padding(
         padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
         child: Row(children: [
           Container(
@@ -535,6 +570,7 @@ class _HomePageState extends State<HomePage> {
           Expanded(child: HudLabel(title, color: context.hud.fg)),
           Text(meta,
               style: Hud.mono.copyWith(fontSize: 11, color: context.hud.dim)),
+          if (trailing != null) trailing,
         ]),
       );
 
@@ -616,9 +652,13 @@ class _HomePageState extends State<HomePage> {
                 child: InkWell(
                   key: Key('dock-$i'),
                   borderRadius: BorderRadius.circular(16),
-                  onTap: () => _jumpTo(i),
+                  onTap: () {
+                    Haptics.tick();
+                    _jumpTo(i);
+                  },
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
+                    duration: Motion.of(context, Motion.medium),
+                    curve: const SpringCurve(),
                     margin: const EdgeInsets.symmetric(horizontal: 2),
                     decoration: BoxDecoration(
                       color: _section == i
@@ -788,6 +828,8 @@ class _HomePageState extends State<HomePage> {
           Text('暂无卡片', style: TextStyle(color: context.hud.dim))
         else ...[
           Row(children: [
+            CountdownRing(card: urgent, size: 40),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(urgent.carrierName,
                   overflow: TextOverflow.ellipsis,
@@ -806,11 +848,13 @@ class _HomePageState extends State<HomePage> {
               style: TextStyle(fontSize: 11, color: context.hud.muted)),
           const SizedBox(height: 10),
           Row(children: [
-            Text(
-                'P1 ${tier(UrgencyTier.p1)} · P2 ${tier(UrgencyTier.p2)} · OK ${tier(UrgencyTier.ok)}',
-                style:
-                    Hud.mono.copyWith(fontSize: 11, color: context.hud.muted)),
-            const Spacer(),
+            Expanded(
+              child: Text(
+                  'P1 ${tier(UrgencyTier.p1)} · P2 ${tier(UrgencyTier.p2)} · OK ${tier(UrgencyTier.ok)}',
+                  overflow: TextOverflow.ellipsis,
+                  style: Hud.mono
+                      .copyWith(fontSize: 11, color: context.hud.muted)),
+            ),
             TextButton(
               key: const Key('bento-checkin'),
               onPressed: () => _checkIn(urgent),
@@ -946,6 +990,7 @@ class _HomePageState extends State<HomePage> {
           key: Key('archived-${c.id}'),
           padding: const EdgeInsets.only(bottom: 8),
           child: GlassPanel(
+            solid: true,
             radius: 14,
             padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
             child: Row(children: [
@@ -1012,15 +1057,27 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _flipCard(SimCard card) => FlipSimCard(
+        key: ValueKey('flip-card-${card.id}'),
+        card: card,
+        highlighted: _slot != null,
+        onCheckIn: () => _checkIn(card),
+        onEdit: () => _openForm(initial: card),
+        onDelete: () => _delete(card),
+        onExportIcs: () => _exportIcs([
+          card
+        ], 'SIMVault_${card.carrierName}_${card.nextDeadlineDate.toIso8601String().substring(0, 10)}.ics'),
+      );
+
   Widget _gallery(List<SimCard> cards) {
+    if (_cards.isEmpty) return _emptyVault();
     if (cards.isEmpty) {
       return Padding(
         padding: const EdgeInsets.all(40),
         child: Column(children: [
-          Icon(Icons.sim_card_outlined, size: 48, color: context.hud.dim),
+          Icon(Icons.filter_alt_off_outlined, size: 48, color: context.hud.dim),
           const SizedBox(height: 8),
-          Text(_cards.isEmpty ? '金库为空，点击「新增 SIM」或从 JSON 备份导入' : '当前筛选无卡片',
-              style: TextStyle(color: context.hud.muted)),
+          Text('当前筛选无卡片', style: TextStyle(color: context.hud.muted)),
         ]),
       );
     }
@@ -1031,24 +1088,282 @@ class _HomePageState extends State<HomePage> {
         spacing: 16,
         runSpacing: 16,
         children: [
-          for (final card in cards)
-            SizedBox(
-              width: w,
-              child: FlipSimCard(
-                key: ValueKey('flip-card-${card.id}'),
-                card: card,
-                highlighted: _slot != null,
-                onCheckIn: () => _checkIn(card),
-                onEdit: () => _openForm(initial: card),
-                onDelete: () => _delete(card),
-                onExportIcs: () => _exportIcs([
-                  card
-                ], 'SIMVault_${card.carrierName}_${card.nextDeadlineDate.toIso8601String().substring(0, 10)}.ics'),
-              ),
-            ),
+          for (final card in cards) SizedBox(width: w, child: _flipCard(card)),
         ],
       );
     });
+  }
+
+  /// First run / everything archived: a preview of what a card looks like
+  /// and the three ways to get started.
+  Widget _emptyVault() {
+    final h = context.hud;
+    final sample = buildSeedCards(DateTime.now()).first;
+    return Padding(
+      key: const Key('empty-vault'),
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(children: [
+        SizedBox(
+          width: 340,
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: .55,
+              child: FlipSimCard(
+                  card: sample,
+                  onCheckIn: () {},
+                  onEdit: () {},
+                  onDelete: () {},
+                  onExportIcs: () {}),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text('卡库还是空的',
+            style: TextStyle(
+                fontSize: 18, fontWeight: FontWeight.w800, color: h.fg)),
+        const SizedBox(height: 6),
+        Text('录入第一张卡，地球、雷达和 15 槽矩阵就会亮起来',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: h.muted)),
+        const SizedBox(height: 16),
+        Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.center,
+            children: [
+              FilledButton.icon(
+                  key: const Key('empty-add'),
+                  onPressed: () => _openForm(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('添加第一张卡')),
+              OutlinedButton.icon(
+                  key: const Key('empty-import'),
+                  onPressed: _openBackup,
+                  icon: const Icon(Icons.data_object),
+                  label: const Text('从 JSON 备份导入')),
+              TextButton(
+                  key: const Key('empty-samples'),
+                  onPressed: () => _persist((_) => _freshSamples()),
+                  child: const Text('载入示例卡')),
+            ]),
+      ]),
+    );
+  }
+
+  /// Sample cards with ids that don't collide with archived cards, so
+  /// reloading samples never hides an archived card's history.
+  List<SimCard> _freshSamples() {
+    final now = DateTime.now();
+    final taken = {for (final c in _archive) c.id};
+    return [
+      for (final c in buildSeedCards(now))
+        taken.contains(c.id)
+            ? c.copyWith(id: '${c.id}-${now.microsecondsSinceEpoch}')
+            : c
+    ];
+  }
+
+  /// Phone wallet mode: one card pulled out, the rest stacked as 56dp strips
+  /// (carrier + days left). Tapping a strip springs that card out.
+  Widget _cardStack(List<SimCard> cards) {
+    final open =
+        cards.firstWhere((c) => c.id == _stackOpen, orElse: () => cards.first);
+    final rest = [
+      for (final c in cards)
+        if (c.id != open.id) c
+    ];
+    return Column(
+        key: const Key('card-stack'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnimatedSwitcher(
+            duration: Motion.of(context, Motion.long),
+            switchInCurve: const SpringCurve(Motion.flipSpring, .48),
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, a) => SizeTransition(
+                sizeFactor: a,
+                axisAlignment: -1,
+                child: FadeTransition(opacity: a, child: child)),
+            child: KeyedSubtree(key: ValueKey(open.id), child: _flipCard(open)),
+          ),
+          const SizedBox(height: 10),
+          for (final (i, c) in rest.indexed)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6.0 * i.clamp(0, 3)),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: _peek(c),
+              ),
+            ),
+        ]);
+  }
+
+  Widget _peek(SimCard c) {
+    const p = HudPalette.dark;
+    final days = c.daysRemaining();
+    return Pressable(
+      key: Key('peek-${c.id}'),
+      onTap: () => setState(() => _stackOpen = c.id),
+      child: ClipPath(
+        clipper: const ChamferClipper(),
+        child: Container(
+          height: 56,
+          padding: const EdgeInsets.only(left: 14, right: 34),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+                colors: brandGradient(c) ?? cardGradient(c.countryCode)),
+          ),
+          child: Row(children: [
+            Text(c.countryCode,
+                style: Hud.mono.copyWith(
+                    fontSize: 12, color: p.muted, fontWeight: FontWeight.w800)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(c.carrierName,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800)),
+            ),
+            Text(days < 0 ? '过期 ${-days} 天' : '剩 $days 天',
+                style: Hud.mono.copyWith(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: p.tierColor(c.urgency()))),
+            const SizedBox(width: 10),
+            CountdownRing(card: c, size: 38, palette: p, showTier: false),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// The one number that matters most: the nearest deadline, with a
+  /// computed summary line and a direct check-in.
+  Widget _hero() {
+    if (_cards.isEmpty) return const SizedBox.shrink();
+    final h = context.hud;
+    final soon = ([..._cards]
+          ..sort((a, b) => a.nextDeadlineDate.compareTo(b.nextDeadlineDate)))
+        .first;
+    final d = soon.daysRemaining();
+    final compact = Hud.isCompact(context);
+    return GlassPanel(
+      key: const Key('hero'),
+      solid: true,
+      radius: 18,
+      padding: EdgeInsets.fromLTRB(14, 12, compact ? 8 : 14, 12),
+      child: Row(children: [
+        CountdownRing(card: soon, size: compact ? 58 : 64),
+        const SizedBox(width: 14),
+        Expanded(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Wrap(
+                crossAxisAlignment: WrapCrossAlignment.end,
+                spacing: 10,
+                children: [
+                  Text(d < 0 ? '已过期 ${-d} 天' : '剩 $d 天',
+                      key: const Key('hero-days'),
+                      style: Hud.mono.copyWith(
+                          fontSize: compact ? 24 : 28,
+                          height: 1.1,
+                          fontWeight: FontWeight.w900,
+                          color: h.tierColor(soon.urgency()))),
+                  Text('${soon.carrierName} · ${soon.keepAliveType.verb}',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: h.fg)),
+                ]),
+            const SizedBox(height: 4),
+            Text(smartSummary(_cards),
+                key: const Key('smart-summary'),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: h.muted)),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        Pressable(
+          child: FilledButton.tonal(
+            key: const Key('hero-checkin'),
+            style: FilledButton.styleFrom(
+                minimumSize: const Size(Hud.minTap, Hud.minTap)),
+            onPressed: () => _checkIn(soon),
+            child: const Text('打卡'),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// One computed sentence about upcoming deadlines for the home hero.
+String smartSummary(List<SimCard> cards, {DateTime? now}) {
+  if (cards.isEmpty) return '还没有卡片';
+  final soon = cards.reduce(
+      (a, b) => b.nextDeadlineDate.isBefore(a.nextDeadlineDate) ? b : a);
+  final d = soon.daysRemaining(now: now);
+  final left = d < 0 ? '已过期 ${-d} 天' : '剩 $d 天';
+  final n = cards.where((c) => c.daysRemaining(now: now) <= 30).length;
+  return n > 0
+      ? '$n 张卡 30 天内到期，最近的是 ${soon.carrierName} · $left'
+      : '30 天内没有到期的卡，最近的是 ${soon.carrierName} · $left';
+}
+
+/// Loading placeholder: the page's block layout, gently pulsing.
+class _Skeleton extends StatefulWidget {
+  const _Skeleton();
+
+  @override
+  State<_Skeleton> createState() => _SkeletonState();
+}
+
+class _SkeletonState extends State<_Skeleton>
+    with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1100));
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (Motion.reduced(context)) {
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final h = context.hud;
+    Widget block(double height) => Container(
+          height: height,
+          margin: const EdgeInsets.only(bottom: 14),
+          decoration: BoxDecoration(
+              color: h.line, borderRadius: BorderRadius.circular(18)),
+        );
+    return FadeTransition(
+      key: const Key('skeleton'),
+      opacity: Tween(begin: .45, end: 1.0).animate(_c),
+      child: ListView(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            block(48),
+            block(84),
+            block(Hud.isCompact(context) ? 420 : 460),
+            block(200),
+          ]),
+    );
   }
 }
 

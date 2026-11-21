@@ -269,8 +269,13 @@ class GlassPanel extends StatelessWidget {
     this.tint,
     this.borderColor,
     this.shadow = true,
+    this.solid = false,
   });
 
+  /// Content surfaces are solid (no blur, opaque face); glass is kept for
+  /// navigation and floating layers. High-contrast mode makes every pane
+  /// solid so text never sits on a see-through background.
+  final bool solid;
   final Widget child;
   final EdgeInsets padding;
   final double radius;
@@ -282,6 +287,21 @@ class GlassPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final r = BorderRadius.circular(radius);
     final h = context.hud;
+    if (solid || (MediaQuery.maybeHighContrastOf(context) ?? false)) {
+      return CustomPaint(
+        foregroundPainter: GlassRimPainter(radius: radius, color: h.glassRim),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: h.panel,
+            borderRadius: r,
+            border: Border.all(color: h.line),
+            boxShadow: shadow ? h.glassShadow : null,
+          ),
+          child: child,
+        ),
+      );
+    }
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: r,

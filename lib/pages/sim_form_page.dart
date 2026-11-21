@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../features/hud/hud_theme.dart';
+import '../features/hud/motion.dart';
 import '../models/sim_card.dart';
 import '../services/carrier_presets.dart';
 
@@ -128,8 +129,14 @@ class _SimFormPageState extends State<SimFormPage> {
         ' ≈ ¥${probe.annualCny.toStringAsFixed(0)}';
   }
 
+  int _shake = 0;
+
   void _submit() {
-    if (!_form.currentState!.validate()) return;
+    if (!_form.currentState!.validate()) {
+      Haptics.error();
+      setState(() => _shake++);
+      return;
+    }
     final slotText = _estkSlot.text.trim();
     final card = SimCard(
       id: _init?.id ?? 'sim-${DateTime.now().microsecondsSinceEpoch}',
@@ -250,131 +257,138 @@ class _SimFormPageState extends State<SimFormPage> {
           ),
         ],
       ),
-      body: Form(
-          key: _form,
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(_pad(context)),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  section('基础信息', [
-                    _field(_carrier, '运营商 *',
-                        key: const Key('field-carrier'),
-                        validator: (v) =>
-                            (v ?? '').trim().isEmpty ? '必填' : null),
-                    _field(_phone, '号码', key: const Key('field-phone')),
-                    _field(_country, '国家/地区代码 (ISO-2)',
-                        key: const Key('field-country'),
-                        validator: (v) =>
-                            RegExp(r'^[A-Za-z]{2}$').hasMatch((v ?? '').trim())
-                                ? null
-                                : '两位字母代码'),
-                    _dropdown('介质类型', _media, MediaType.values, (m) => m.label,
-                        (m) => _media = m,
-                        key: const Key('field-media')),
-                    SizedBox(
-                      width: _w,
-                      child: SwitchListTile(
-                        title: const Text('在线启用'),
-                        value: _active,
-                        onChanged: (v) => setState(() => _active = v),
+      body: Shake(
+        trigger: _shake,
+        child: Form(
+            key: _form,
+            child: SingleChildScrollView(
+              padding: EdgeInsets.all(_pad(context)),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    section('基础信息', [
+                      _field(_carrier, '运营商 *',
+                          key: const Key('field-carrier'),
+                          validator: (v) =>
+                              (v ?? '').trim().isEmpty ? '必填' : null),
+                      _field(_phone, '号码', key: const Key('field-phone')),
+                      _field(_country, '国家/地区代码 (ISO-2)',
+                          key: const Key('field-country'),
+                          validator: (v) => RegExp(r'^[A-Za-z]{2}$')
+                                  .hasMatch((v ?? '').trim())
+                              ? null
+                              : '两位字母代码'),
+                      _dropdown('介质类型', _media, MediaType.values,
+                          (m) => m.label, (m) => _media = m,
+                          key: const Key('field-media')),
+                      SizedBox(
+                        width: _w,
+                        child: SwitchListTile(
+                          title: const Text('在线启用'),
+                          value: _active,
+                          onChanged: (v) => setState(() => _active = v),
+                        ),
                       ),
-                    ),
-                  ]),
-                  section('存放位置 / eSTK 槽位', [
-                    _dropdown('存放位置', _location, LocationType.values,
-                        (l) => l.label, (l) => _location = l),
-                    _field(_host, '宿主设备'),
-                    _field(_slotDetail, '槽位描述'),
-                    _field(_estkSlot, 'eSTK 槽位号 (1-15)',
-                        key: const Key('field-estk-slot'),
-                        enabled: _slotEnabled,
-                        type: TextInputType.number,
-                        validator: _validateSlot),
-                  ]),
-                  section('资费', [
-                    _field(_plan, '套餐名称'),
-                    _field(_balance, '余额',
-                        validator: _validateNumber, type: TextInputType.number),
-                    _field(_currency, '币种 (CNY/USD/HKD/GBP/JPY…)'),
-                    _dropdown('计费周期', _billing, BillingCycle.values,
-                        (b) => b.label, (b) => _billing = b),
-                    _field(_cost, '周期费用',
-                        key: const Key('field-cost'),
-                        validator: _validateFee,
-                        type: TextInputType.number),
-                  ]),
-                  section('保号规则', [
-                    SizedBox(
+                    ]),
+                    section('存放位置 / eSTK 槽位', [
+                      _dropdown('存放位置', _location, LocationType.values,
+                          (l) => l.label, (l) => _location = l),
+                      _field(_host, '宿主设备'),
+                      _field(_slotDetail, '槽位描述'),
+                      _field(_estkSlot, 'eSTK 槽位号 (1-15)',
+                          key: const Key('field-estk-slot'),
+                          enabled: _slotEnabled,
+                          type: TextInputType.number,
+                          validator: _validateSlot),
+                    ]),
+                    section('资费', [
+                      _field(_plan, '套餐名称'),
+                      _field(_balance, '余额',
+                          validator: _validateNumber,
+                          type: TextInputType.number),
+                      _field(_currency, '币种 (CNY/USD/HKD/GBP/JPY…)'),
+                      _dropdown('计费周期', _billing, BillingCycle.values,
+                          (b) => b.label, (b) => _billing = b),
+                      _field(_cost, '周期费用',
+                          key: const Key('field-cost'),
+                          validator: _validateFee,
+                          type: TextInputType.number),
+                    ]),
+                    section('保号规则', [
+                      SizedBox(
+                          width: _wide,
+                          child: _dropdown<String>(
+                              '运营商预设（自动带出规则，可改）',
+                              _presetId,
+                              ['', for (final p in carrierPresets) p.id], (id) {
+                            final p = presetById(id);
+                            return p == null
+                                ? '自定义'
+                                : '${p.name} · ${p.cycleDays} 天 · ${p.type.label}';
+                          }, _applyPreset, key: const Key('field-preset'))),
+                      _dropdown('保号类型', _kaType, KeepAliveType.values,
+                          (t) => t.label, (t) => _kaType = t,
+                          key: const Key('field-ka-type')),
+                      _dropdown('续期算法', _renewal, RenewalBasis.values,
+                          (r) => r.label, (r) => _renewal = r,
+                          key: const Key('field-renewal')),
+                      _field(_cycleDays, '保号周期 (天)',
+                          key: const Key('field-cycle'),
+                          type: TextInputType.number,
+                          validator: (v) =>
+                              (int.tryParse((v ?? '').trim()) ?? 0) > 0
+                                  ? null
+                                  : '正整数'),
+                      SizedBox(
+                        width: _w,
+                        child: OutlinedButton.icon(
+                          key: const Key('field-deadline'),
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: _deadline,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked != null) {
+                              setState(() => _deadline = dateOnly(picked));
+                            }
+                          },
+                          icon: const Icon(Icons.event),
+                          label: Text(
+                              '下次死线 ${DateFormat('yyyy-MM-dd').format(_deadline)}'),
+                        ),
+                      ),
+                      SizedBox(width: _wide, child: _field(_action, '保号动作')),
+                      SizedBox(
+                          width: _wide,
+                          child: _field(_rechargeUrl, '官方充值链接',
+                              key: const Key('field-recharge-url'))),
+                      SizedBox(
                         width: _wide,
-                        child: _dropdown<String>('运营商预设（自动带出规则，可改）', _presetId,
-                            ['', for (final p in carrierPresets) p.id], (id) {
-                          final p = presetById(id);
-                          return p == null
-                              ? '自定义'
-                              : '${p.name} · ${p.cycleDays} 天 · ${p.type.label}';
-                        }, _applyPreset, key: const Key('field-preset'))),
-                    _dropdown('保号类型', _kaType, KeepAliveType.values,
-                        (t) => t.label, (t) => _kaType = t,
-                        key: const Key('field-ka-type')),
-                    _dropdown('续期算法', _renewal, RenewalBasis.values,
-                        (r) => r.label, (r) => _renewal = r,
-                        key: const Key('field-renewal')),
-                    _field(_cycleDays, '保号周期 (天)',
-                        key: const Key('field-cycle'),
-                        type: TextInputType.number,
-                        validator: (v) =>
-                            (int.tryParse((v ?? '').trim()) ?? 0) > 0
-                                ? null
-                                : '正整数'),
-                    SizedBox(
-                      width: _w,
-                      child: OutlinedButton.icon(
-                        key: const Key('field-deadline'),
-                        onPressed: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _deadline,
-                            firstDate: DateTime(2000),
-                            lastDate: DateTime(2100),
-                          );
-                          if (picked != null) {
-                            setState(() => _deadline = dateOnly(picked));
-                          }
-                        },
-                        icon: const Icon(Icons.event),
-                        label: Text(
-                            '下次死线 ${DateFormat('yyyy-MM-dd').format(_deadline)}'),
+                        child: ListenableBuilder(
+                          listenable:
+                              Listenable.merge([_cost, _cycleDays, _currency]),
+                          builder: (context, _) => Text(_annualPreview(),
+                              key: const Key('annual-preview'),
+                              style: Hud.mono.copyWith(
+                                  fontSize: 12, color: context.hud.emerald)),
+                        ),
                       ),
-                    ),
-                    SizedBox(width: _wide, child: _field(_action, '保号动作')),
-                    SizedBox(
-                        width: _wide,
-                        child: _field(_rechargeUrl, '官方充值链接',
-                            key: const Key('field-recharge-url'))),
-                    SizedBox(
-                      width: _wide,
-                      child: ListenableBuilder(
-                        listenable:
-                            Listenable.merge([_cost, _cycleDays, _currency]),
-                        builder: (context, _) => Text(_annualPreview(),
-                            key: const Key('annual-preview'),
-                            style: Hud.mono.copyWith(
-                                fontSize: 12, color: context.hud.emerald)),
-                      ),
-                    ),
+                    ]),
+                    section('卡背机密', [
+                      _field(_iccid, 'ICCID', key: const Key('field-iccid')),
+                      _field(_pin, 'PIN1'),
+                      _field(_puk, 'PUK1'),
+                      _field(_lpa, 'eSIM LPA 激活串'),
+                      SizedBox(
+                          width: _wide,
+                          child: _field(_services, '绑定服务 (逗号分隔)')),
+                      SizedBox(width: _wide, child: _field(_notes, '备注')),
+                    ]),
                   ]),
-                  section('卡背机密', [
-                    _field(_iccid, 'ICCID', key: const Key('field-iccid')),
-                    _field(_pin, 'PIN1'),
-                    _field(_puk, 'PUK1'),
-                    _field(_lpa, 'eSIM LPA 激活串'),
-                    SizedBox(
-                        width: _wide, child: _field(_services, '绑定服务 (逗号分隔)')),
-                    SizedBox(width: _wide, child: _field(_notes, '备注')),
-                  ]),
-                ]),
-          )),
+            )),
+      ),
     );
   }
 }

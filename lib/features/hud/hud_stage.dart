@@ -7,6 +7,7 @@ import '../globe/atlas_globe.dart';
 import '../globe/country_meta.dart';
 import '../globe/globe_controller.dart';
 import '../globe/topojson.dart';
+import '../cards/brand.dart';
 import 'hud_theme.dart';
 
 /// Builds one globe node per country that has (filtered) cards. Positions come
@@ -21,6 +22,8 @@ List<GlobeNode> buildGlobeNodes(List<SimCard> cards, List<GeoCountry> countries,
   byCode.forEach((code, group) {
     final pos = focusFor(code, countries);
     if (pos == null) return;
+    final soonest = group.reduce(
+        (a, b) => a.nextDeadlineDate.isAfter(b.nextDeadlineDate) ? b : a);
     final worst = group
         .map((c) => c.urgency())
         .reduce((a, b) => a.index < b.index ? a : b);
@@ -30,6 +33,7 @@ List<GlobeNode> buildGlobeNodes(List<SimCard> cards, List<GeoCountry> countries,
       lat: pos.$2,
       count: group.length,
       color: palette.tierColor(worst),
+      brand: brandColor(soonest, palette),
     ));
   });
   return nodes;
@@ -654,8 +658,7 @@ class _RadarDrawer extends StatelessWidget {
     return GlassPanel(
       padding: const EdgeInsets.all(14),
       radius: 18,
-      tint:
-          context.hud.isDark ? const Color(0xB30B1222) : context.hud.glassTint,
+      solid: true,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(
