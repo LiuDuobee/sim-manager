@@ -87,23 +87,36 @@ ParsedSms parseRenewalSms(String text, {DateTime? now}) {
   );
 }
 
+const _balanceWords = ['余额', '餘額', 'balance', '残高', 'ยอดคงเหลือ', 'remaining'];
+
 (double?, String?) _amount(String text) {
-  const num = r'(\d{1,6}(?:[.,]\d{1,2})?)';
-  // Symbol / code before the number: £10, HK$ 100, USD 3.
+  // Whole numbers only: thousands separators (1,000.00) are allowed; a
+  // number is never cut out of a longer one.
+  const num =
+      r'(?<![\d.,])(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)(?![\d,]*\d)';
   final symbols = _currencySymbols.keys.map(RegExp.escape).join('|');
-  final before =
-      RegExp('($symbols|${_codes.join('|')})\\s?$num', caseSensitive: false);
+  final codes = _codes.join('|');
+  // Symbol / code before the number: £10, HK$ 100, USD 3.
+  final before = RegExp('($symbols|$codes)\\s?$num', caseSensitive: false);
   // Number before the unit: 100元, 300円, 50 HKD, 100 บาท.
-  final after =
-      RegExp('$num\\s?(${_codes.join('|')}|$symbols)', caseSensitive: false);
+  final after = RegExp('$num\\s?($codes|$symbols)', caseSensitive: false);
+  final found = <(int, double, String)>[];
   for (final (re, numGroup, curGroup) in [(before, 2, 1), (after, 1, 2)]) {
     for (final m in re.allMatches(text)) {
-      final value = double.tryParse(m.group(numGroup)!.replaceAll(',', '.'));
+      final value = double.tryParse(m.group(numGroup)!.replaceAll(',', ''));
       if (value == null || !value.isFinite || value < 0) continue;
-      return (value, _currencyOf(m.group(curGroup)!));
+      // Skip the account balance ("余额 120 元", "balance is $25").
+      final lead = text
+          .substring(m.start < 14 ? 0 : m.start - 14, m.start)
+          .toLowerCase();
+      if (_balanceWords.any(lead.contains)) continue;
+      found.add((m.start, value, _currencyOf(m.group(curGroup)!)));
     }
   }
-  return (null, null);
+  if (found.isEmpty) return (null, null);
+  // The first amount in the text, whichever side its currency is on.
+  found.sort((a, b) => a.$1.compareTo(b.$1));
+  return (found.first.$2, found.first.$3);
 }
 
 String _currencyOf(String raw) {

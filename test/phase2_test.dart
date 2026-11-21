@@ -174,6 +174,16 @@ void main() {
       expect(hk.deadline, DateTime(2027, 1, 5));
 
       expect(parseRenewalSms('明天见').isEmpty, isTrue);
+
+      // Thousands separators and whole numbers only.
+      expect(parseRenewalSms('チャージ1,000円が完了しました').amount, 1000);
+      expect(parseRenewalSms('Top up successful: \$1,000.00').amount, 1000);
+      // The balance is not the top-up amount.
+      final bal =
+          parseRenewalSms('Top-up successful: 10 USD. Your balance is \$25.');
+      expect(bal.amount, 10);
+      expect(bal.currency, 'USD');
+      expect(parseRenewalSms('当前余额 120.5 元').amount, isNull);
     });
 
     test('recordTopUp writes the confirmed amount and date', () {
