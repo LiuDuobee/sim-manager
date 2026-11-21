@@ -44,10 +44,11 @@ class _SmsRenewalPageState extends State<SmsRenewalPage> {
     final p = parseRenewalSms(_text.text);
     setState(() {
       _parsed = p;
-      if (p.amount != null) {
-        _amount.text = p.amount!.toStringAsFixed(p.amount! % 1 == 0 ? 0 : 2);
-      }
-      if (p.deadline != null) _deadline = p.deadline;
+      // Follow the current text: nothing from an earlier SMS survives.
+      _amount.text = p.amount == null
+          ? ''
+          : p.amount!.toStringAsFixed(p.amount! % 1 == 0 ? 0 : 2);
+      _deadline = p.deadline;
     });
   }
 
@@ -135,7 +136,15 @@ class _SmsRenewalPageState extends State<SmsRenewalPage> {
           subtitle: Text(_deadline == null
               ? '短信未给出，按「${c.renewalBasis.label}」规则自动计算'
               : fmt.format(_deadline!)),
-          trailing: const Icon(Icons.edit_calendar),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (_deadline != null)
+              IconButton(
+                  key: const Key('sms-deadline-clear'),
+                  tooltip: '清除，按规则计算',
+                  onPressed: () => setState(() => _deadline = null),
+                  icon: const Icon(Icons.clear)),
+            const Icon(Icons.edit_calendar),
+          ]),
           onTap: () async {
             final picked = await showDatePicker(
                 context: context,

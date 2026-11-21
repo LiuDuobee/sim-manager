@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sim_manager/features/cards/iccid_scanner.dart';
 import 'package:sim_manager/features/cards/show_number_page.dart';
+import 'package:sim_manager/features/cards/sms_renewal_page.dart';
 import 'package:sim_manager/features/globe/topojson.dart';
 import 'package:sim_manager/main.dart';
 import 'package:sim_manager/pages/home_page.dart';
@@ -221,6 +222,27 @@ void main() {
       expect(saved.nextDeadlineDate, DateTime(2027, 12, 31));
       expect(saved.events.first.type, CardEventType.topUp);
       expect(saved.events.first.amount, 3);
+    });
+
+    testWidgets('SMS sheet: replaced text drops the old expiry',
+        (tester) async {
+      await tester.pumpWidget(
+          MaterialApp(home: SmsRenewalPage(card: buildSeedCards(now).first)));
+      await tester.enterText(
+          find.byKey(const Key('sms-text')), '充值成功 50元 有效期至2028-01-01');
+      await tester.pump();
+      expect(find.text('2028-01-01'), findsWidgets);
+      await tester.enterText(find.byKey(const Key('sms-text')), '充值成功');
+      await tester.pump();
+      expect(find.text('2028-01-01'), findsNothing);
+      expect(find.textContaining('自动计算'), findsOneWidget);
+      // A date can also be cleared by hand.
+      await tester.enterText(
+          find.byKey(const Key('sms-text')), '有效期至2028-01-01');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('sms-deadline-clear')));
+      await tester.pump();
+      expect(find.textContaining('自动计算'), findsOneWidget);
     });
 
     testWidgets('SMS sheet: backing out writes nothing', (tester) async {
