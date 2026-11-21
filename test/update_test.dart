@@ -359,7 +359,7 @@ void main() {
       await frames(tester);
       host.pending!.complete('/cache/updates/x.apk');
       await frames(tester);
-      expect(find.text('已打开系统安装器，按提示完成安装。'), findsOneWidget);
+      expect(find.textContaining('已打开系统安装器，按提示完成安装。'), findsOneWidget);
     });
 
     testWidgets('denied install permission falls back to the release page',
@@ -374,6 +374,13 @@ void main() {
       expect(find.textContaining('安装未知应用'), findsOneWidget);
       await tester.tap(find.byKey(const Key('update-open-page')));
       expect(host.opened.single, contains('/releases/tag/v3.4.0'));
+
+      // After granting, retry installs the file already downloaded.
+      host.outcome = const InstallOutcome(InstallStatus.started);
+      await tester.tap(find.byKey(const Key('update-retry')));
+      await frames(tester);
+      expect(host.downloads, hasLength(1));
+      expect(find.textContaining('已打开系统安装器，按提示完成安装。'), findsOneWidget);
     });
 
     testWidgets('Windows extracts the zip and says so; no asset → page',

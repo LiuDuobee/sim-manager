@@ -95,6 +95,9 @@ class _UpdateDownloadDialogState extends State<UpdateDownloadDialog> {
   CancelToken? _cancel;
   ReleaseAsset? _asset;
 
+  /// Kept so a retry after an install problem doesn't download again.
+  String? _downloaded;
+
   @override
   void initState() {
     super.initState();
@@ -121,10 +124,10 @@ class _UpdateDownloadDialogState extends State<UpdateDownloadDialog> {
         return _fail('这个版本没有适合本机的安装包'
             '${abis.isEmpty ? '' : '（${abis.join(' / ')}）'}，请到 Release 页手动下载。');
       }
-      _asset = asset;
+      setState(() => _asset = asset);
       final cancel = _cancel = CancelToken();
-      final path = await host.download(asset.url, asset.name, cancel: cancel,
-          onProgress: (r, t) {
+      final path = _downloaded ??= await host
+          .download(asset.url, asset.name, cancel: cancel, onProgress: (r, t) {
         if (mounted) {
           setState(() {
             _received = r;
@@ -137,7 +140,8 @@ class _UpdateDownloadDialogState extends State<UpdateDownloadDialog> {
       if (!mounted) return;
       switch (out.status) {
         case InstallStatus.started:
-          _done('已打开系统安装器，按提示完成安装。');
+          _done('已打开系统安装器，按提示完成安装。若提示「与现有软件包冲突」，说明新旧安装包签名不同：'
+              '请先用「JSON 备份」导出数据，卸载旧版后再安装，然后导入备份。');
         case InstallStatus.extracted:
           _done('新版已解压到 ${out.path}，并已打开该文件夹。'
               '请关闭当前 SIMVault，运行文件夹里的 sim_manager.exe（不会自动替换当前程序）。');
