@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sim_manager/features/cards/region_flag.dart';
 import 'package:sim_manager/features/globe/topojson.dart';
+import 'package:sim_manager/features/hud/hud_stage.dart';
 import 'package:sim_manager/features/hud/hud_theme.dart';
 import 'package:sim_manager/main.dart';
 import 'package:sim_manager/pages/home_page.dart';
@@ -139,6 +140,15 @@ void main() {
       expect(travelSources, hasLength(24));
       expect(domesticDataSources, ['运营商官方', '电商平台', '线下卡商']);
     });
+  });
+
+  test('every picker currency has a CNY estimate rate', () {
+    for (final c in currencies) {
+      expect(exchangeRatesToCny, contains(c.code), reason: c.code);
+    }
+    for (final r in allRegions) {
+      expect(exchangeRatesToCny, contains(r.currency), reason: r.code);
+    }
   });
 
   group('accent stripe contrast', () {
