@@ -14,12 +14,12 @@ void main() {
   final atlas = decodeWorldAtlas(
       File('assets/geo/countries-110m.json').readAsStringSync());
 
-  Future<void> pumpHome(WidgetTester tester) async {
+  Future<void> pumpHome(WidgetTester tester, {SimRepository? repo}) async {
     tester.view.physicalSize = const Size(1600, 3000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-        SimVaultApp(home: HomePage(atlasLoader: () async => atlas)));
+    await tester.pumpWidget(SimVaultApp(
+        home: HomePage(repository: repo, atlasLoader: () async => atlas)));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
   }
@@ -79,6 +79,21 @@ void main() {
             matching: find.byType(Transform))
         .first);
     expect(mirror.transform.storage[0], closeTo(-1, 1e-9)); // pre-rotated π
+  });
+
+  testWidgets('overlapping check-ins both persist', (tester) async {
+    await pumpHome(tester, repo: _SlowSaveRepository());
+    const ids = ['sim-us-tmobile', 'sim-cn-cmcc'];
+    for (final id in ids) {
+      await tester.tap(find.byKey(Key('checkin-$id')));
+    }
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    final today = dateOnly(DateTime.now());
+    final saved = await stored();
+    for (final id in ids) {
+      expect(saved.firstWhere((c) => c.id == id).lastKeepAliveDate, today);
+    }
   });
 
   testWidgets('check-in, delete and add persist locally', (tester) async {
@@ -224,4 +239,12 @@ void main() {
     await pumpHome(tester);
     expect(find.textContaining('已拦截 1 张非法卡片'), findsOneWidget);
   });
+}
+
+class _SlowSaveRepository extends SimRepository {
+  @override
+  Future<void> save(List<SimCard> cards) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await super.save(cards);
+  }
 }

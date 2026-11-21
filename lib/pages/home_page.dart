@@ -90,17 +90,25 @@ class _HomePageState extends State<HomePage> {
     }).toList();
   }
 
-  /// Writes [cards] first and only then shows them; false when the write
-  /// failed (the UI and the stored vault both keep the previous cards).
-  Future<bool> _persist(List<SimCard> cards) async {
-    try {
-      await _repo.save(cards);
-    } on Object catch (e) {
-      if (mounted) _toast('保存失败，本地数据未改动: $e');
-      return false;
-    }
-    if (mounted) setState(() => _cards = cards);
-    return true;
+  Future<void> _writes = Future.value();
+
+  /// Applies [change] to the latest cards, writes the result and only then
+  /// shows it. Writes run one at a time so overlapping actions never save
+  /// stale snapshots. False when the write failed (UI and vault unchanged).
+  Future<bool> _persist(List<SimCard> Function(List<SimCard>) change) {
+    final result = _writes.then((_) async {
+      final cards = change(_cards);
+      try {
+        await _repo.save(cards);
+      } on Object catch (e) {
+        if (mounted) _toast('保存失败，本地数据未改动: $e');
+        return false;
+      }
+      if (mounted) setState(() => _cards = cards);
+      return true;
+    });
+    _writes = result;
+    return result;
   }
 
   void _toast(String msg) => ScaffoldMessenger.of(context)
@@ -126,9 +134,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _checkIn(SimCard card) async {
-    final updated = card.checkIn();
-    if (!await _persist(
-        [for (final c in _cards) c.id == card.id ? updated : c])) {
+    if (!await _persist((cards) =>
+        [for (final c in cards) c.id == card.id ? c.checkIn() : c])) {
       return;
     }
     _toast('${card.carrierName} 保号打卡成功，死线顺延 ${card.keepAliveCycleDays} 天');
@@ -141,9 +148,9 @@ class _HomePageState extends State<HomePage> {
     ));
     if (result == null) return;
     final exists = _cards.any((c) => c.id == result.id);
-    if (!await _persist(exists
-        ? [for (final c in _cards) c.id == result.id ? result : c]
-        : [..._cards, result])) {
+    if (!await _persist((cards) => cards.any((c) => c.id == result.id)
+        ? [for (final c in cards) c.id == result.id ? result : c]
+        : [...cards, result])) {
       return;
     }
     _toast(exists ? '已保存 ${result.carrierName}' : '已新增 ${result.carrierName}');
@@ -167,7 +174,10 @@ class _HomePageState extends State<HomePage> {
       ),
     );
     if (ok != true) return;
-    if (!await _persist(_cards.where((c) => c.id != card.id).toList())) return;
+    if (!await _persist(
+        (cards) => cards.where((c) => c.id != card.id).toList())) {
+      return;
+    }
     if (_slot != null && !_layout.slots.containsKey(_slot)) {
       setState(() => _slot = null);
     }
@@ -272,7 +282,7 @@ class _HomePageState extends State<HomePage> {
                 builder: (_) => BackupPage(
                   cards: _cards,
                   onImport: (cards) async {
-                    if (!await _persist(cards)) return false;
+                    if (!await _persist((_) => cards)) return false;
                     setState(() {
                       _country = null;
                       _slot = null;
