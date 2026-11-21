@@ -374,6 +374,21 @@ void main() {
       expect(c.keepAliveEnabled, isFalse);
     });
 
+    testWidgets('picking a region keeps a data card rule-less',
+        (tester) async {
+      final result = await openForm(tester);
+      await choose(tester, 'field-kind', '旅游卡');
+      await tapKey(tester, 'pick-region');
+      await tester.tap(find.byKey(const Key('region-JP')));
+      await frames(tester);
+      expect(text(tester, 'field-carrier'), 'povo');
+      expect(find.byKey(const Key('field-cycle')), findsNothing);
+      await tester.enterText(find.byKey(const Key('field-plan-days')), '5');
+      await tapKey(tester, 'save-card');
+      expect(result()!.keepAliveEnabled, isFalse);
+      expect(result()!.carrierPresetId, 'povo2');
+    });
+
     testWidgets('other kind takes a custom name and keeps its rule',
         (tester) async {
       final result = await openForm(tester);

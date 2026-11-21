@@ -117,7 +117,9 @@ class _SimFormPageState extends State<SimFormPage> {
     _carrier.text = c.name;
     if (c.presetId.isNotEmpty && presetById(c.presetId) != null) {
       _applyPreset(c.presetId);
-      _kaEnabled = true;
+      if (_planType == PlanType.prepaid && !_kind.hasDataPlan) {
+        _kaEnabled = true;
+      }
     } else if (_presetId.isNotEmpty) {
       _presetId = '';
     }
