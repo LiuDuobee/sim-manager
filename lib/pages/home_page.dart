@@ -10,6 +10,7 @@ import '../features/globe/globe_controller.dart';
 import '../features/globe/topojson.dart';
 import '../features/hud/hud_stage.dart';
 import '../features/hud/hud_theme.dart';
+import '../features/settings/theme_mode.dart';
 import '../models/sim_card.dart';
 import '../services/estk_slots.dart';
 import '../services/file_export.dart';
@@ -370,10 +371,12 @@ class _HomePageState extends State<HomePage> {
               width: 3,
               height: 14,
               decoration: BoxDecoration(
-                  color: Hud.sky, borderRadius: BorderRadius.circular(2))),
+                  color: context.hud.sky,
+                  borderRadius: BorderRadius.circular(2))),
           const SizedBox(width: 8),
-          Expanded(child: HudLabel(title, color: Colors.white)),
-          Text(meta, style: Hud.mono.copyWith(fontSize: 11, color: Hud.dim)),
+          Expanded(child: HudLabel(title, color: context.hud.fg)),
+          Text(meta,
+              style: Hud.mono.copyWith(fontSize: 11, color: context.hud.dim)),
         ]),
       );
 
@@ -383,10 +386,10 @@ class _HomePageState extends State<HomePage> {
           height: 36,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(11),
-            border: Border.all(color: Hud.sky.withValues(alpha: .5)),
-            color: Hud.sky.withValues(alpha: .12),
+            border: Border.all(color: context.hud.sky.withValues(alpha: .5)),
+            color: context.hud.sky.withValues(alpha: .12),
           ),
-          child: const Icon(Icons.public, color: Hud.sky, size: 20),
+          child: Icon(Icons.public, color: context.hud.sky, size: 20),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -404,29 +407,41 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(5),
-                    border: Border.all(color: Hud.sky.withValues(alpha: .5))),
+                    border: Border.all(
+                        color: context.hud.sky.withValues(alpha: .5))),
                 child: Text('v3.2',
-                    style: Hud.mono.copyWith(fontSize: 9.5, color: Hud.sky)),
+                    style: Hud.mono
+                        .copyWith(fontSize: 9.5, color: context.hud.sky)),
               ),
             ]),
             Text('WORLD CARD ATLAS · LOCAL-FIRST',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Hud.mono
-                    .copyWith(fontSize: 9.5, letterSpacing: 1, color: Hud.dim)),
+                style: Hud.mono.copyWith(
+                    fontSize: 9.5, letterSpacing: 1, color: context.hud.dim)),
           ]),
+        ),
+        IconButton(
+          key: const Key('theme-menu'),
+          tooltip: '主题：浅色 / 深色 / 跟随系统',
+          onPressed: () => showThemeModeSheet(context),
+          icon: Icon(
+              themeModeOptions
+                  .firstWhere((o) => o.$1 == ThemeModeScope.of(context).value)
+                  .$2,
+              color: context.hud.muted),
         ),
         IconButton(
           key: const Key('export-all-ics'),
           tooltip: '导出全部 ICS',
           onPressed: () => _exportIcs(_cards, 'SIMVault_all_deadlines.ics'),
-          icon: const Icon(Icons.event_outlined, color: Hud.muted),
+          icon: Icon(Icons.event_outlined, color: context.hud.muted),
         ),
         IconButton(
           key: const Key('open-backup'),
           tooltip: 'JSON 备份',
           onPressed: _openBackup,
-          icon: const Icon(Icons.data_object, color: Hud.muted),
+          icon: Icon(Icons.data_object, color: context.hud.muted),
         ),
       ]);
 
@@ -434,7 +449,7 @@ class _HomePageState extends State<HomePage> {
         key: const Key('mobile-dock'),
         radius: 22,
         padding: const EdgeInsets.all(6),
-        tint: const Color(0xD90B1222),
+        tint: context.hud.dockTint,
         child: SizedBox(
           height: 52,
           child: Row(children: [
@@ -449,12 +464,12 @@ class _HomePageState extends State<HomePage> {
                     margin: const EdgeInsets.symmetric(horizontal: 2),
                     decoration: BoxDecoration(
                       color: _section == i
-                          ? Hud.sky.withValues(alpha: .14)
+                          ? context.hud.sky.withValues(alpha: .14)
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                           color: _section == i
-                              ? Hud.sky.withValues(alpha: .35)
+                              ? context.hud.sky.withValues(alpha: .35)
                               : Colors.transparent),
                     ),
                     child: Column(
@@ -462,13 +477,17 @@ class _HomePageState extends State<HomePage> {
                         children: [
                           Icon(_sections[i].$1,
                               size: 20,
-                              color: _section == i ? Hud.sky : Hud.muted),
+                              color: _section == i
+                                  ? context.hud.sky
+                                  : context.hud.muted),
                           const SizedBox(height: 2),
                           Text(_sections[i].$2,
                               style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
-                                  color: _section == i ? Hud.sky : Hud.muted)),
+                                  color: _section == i
+                                      ? context.hud.sky
+                                      : context.hud.muted)),
                         ]),
                   ),
                 ),
@@ -501,10 +520,11 @@ class _HomePageState extends State<HomePage> {
               height: 40,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Hud.sky.withValues(alpha: .5)),
-                color: Hud.sky.withValues(alpha: .12),
+                border:
+                    Border.all(color: context.hud.sky.withValues(alpha: .5)),
+                color: context.hud.sky.withValues(alpha: .12),
               ),
-              child: const Icon(Icons.public, color: Hud.sky),
+              child: Icon(Icons.public, color: context.hud.sky),
             ),
             const SizedBox(width: 12),
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -518,35 +538,44 @@ class _HomePageState extends State<HomePage> {
                       const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Hud.sky.withValues(alpha: .5))),
+                      border: Border.all(
+                          color: context.hud.sky.withValues(alpha: .5))),
                   child: Text('v3.2 WORLD CARD ATLAS',
-                      style: Hud.mono.copyWith(fontSize: 10, color: Hud.sky)),
+                      style: Hud.mono
+                          .copyWith(fontSize: 10, color: context.hud.sky)),
                 ),
               ]),
               Text('GLOBAL SIM ATLAS · KEEP-ALIVE RADAR · LOCAL-FIRST',
-                  style: Hud.mono.copyWith(fontSize: 10, color: Hud.dim)),
+                  style:
+                      Hud.mono.copyWith(fontSize: 10, color: context.hud.dim)),
             ]),
           ]),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            OutlinedButton.icon(
-              key: const Key('export-all-ics'),
-              onPressed: () => _exportIcs(_cards, 'SIMVault_all_deadlines.ics'),
-              icon: const Icon(Icons.event, size: 16),
-              label: const Text('导出全部 ICS'),
-            ),
-            OutlinedButton.icon(
-              key: const Key('open-backup'),
-              onPressed: _openBackup,
-              icon: const Icon(Icons.data_object, size: 16),
-              label: const Text('JSON 备份'),
-            ),
-            FilledButton.icon(
-              key: const Key('add-card'),
-              onPressed: () => _openForm(),
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('新增 SIM'),
-            ),
-          ]),
+          Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const ThemeModeSwitch(),
+                OutlinedButton.icon(
+                  key: const Key('export-all-ics'),
+                  onPressed: () =>
+                      _exportIcs(_cards, 'SIMVault_all_deadlines.ics'),
+                  icon: const Icon(Icons.event, size: 16),
+                  label: const Text('导出全部 ICS'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('open-backup'),
+                  onPressed: _openBackup,
+                  icon: const Icon(Icons.data_object, size: 16),
+                  label: const Text('JSON 备份'),
+                ),
+                FilledButton.icon(
+                  key: const Key('add-card'),
+                  onPressed: () => _openForm(),
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('新增 SIM'),
+                ),
+              ]),
         ],
       );
 
@@ -569,7 +598,7 @@ class _HomePageState extends State<HomePage> {
             style:
                 Hud.mono.copyWith(fontSize: 34, fontWeight: FontWeight.w900)),
         Text('$regions 个国家/地区 · $active 张在线 / ${_cards.length - active} 张待机',
-            style: const TextStyle(fontSize: 11, color: Hud.muted)),
+            style: TextStyle(fontSize: 11, color: context.hud.muted)),
         const SizedBox(height: 12),
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
@@ -578,23 +607,25 @@ class _HomePageState extends State<HomePage> {
               if (count(m) > 0)
                 Expanded(
                     flex: count(m),
-                    child: Container(height: 6, color: Hud.mediaColor(m))),
+                    child:
+                        Container(height: 6, color: context.hud.mediaColor(m))),
             if (_cards.isEmpty)
-              Expanded(child: Container(height: 6, color: Hud.line)),
+              Expanded(child: Container(height: 6, color: context.hud.line)),
           ]),
         ),
         const SizedBox(height: 8),
         Wrap(spacing: 10, children: [
           for (final m in MediaType.values)
             Text('● ${m.label} ${count(m)}',
-                style: TextStyle(fontSize: 10.5, color: Hud.mediaColor(m))),
+                style: TextStyle(
+                    fontSize: 10.5, color: context.hud.mediaColor(m))),
         ]),
       ]),
       _BentoTile(children: [
-        const HudLabel('02 / Deadline Shield', color: Hud.rose),
+        HudLabel('02 / Deadline Shield', color: context.hud.rose),
         const SizedBox(height: 10),
         if (urgent == null)
-          const Text('暂无卡片', style: TextStyle(color: Hud.dim))
+          Text('暂无卡片', style: TextStyle(color: context.hud.dim))
         else ...[
           Row(children: [
             Expanded(
@@ -607,17 +638,18 @@ class _HomePageState extends State<HomePage> {
                 style: Hud.mono.copyWith(
                     fontSize: 26,
                     fontWeight: FontWeight.w900,
-                    color: Hud.tierColor(urgent.urgency()))),
+                    color: context.hud.tierColor(urgent.urgency()))),
           ]),
           Text(urgent.keepAliveAction,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Hud.muted)),
+              style: TextStyle(fontSize: 11, color: context.hud.muted)),
           const SizedBox(height: 10),
           Row(children: [
             Text(
                 'P1 ${tier(UrgencyTier.p1)} · P2 ${tier(UrgencyTier.p2)} · OK ${tier(UrgencyTier.ok)}',
-                style: Hud.mono.copyWith(fontSize: 11, color: Hud.muted)),
+                style:
+                    Hud.mono.copyWith(fontSize: 11, color: context.hud.muted)),
             const Spacer(),
             TextButton(
               key: const Key('bento-checkin'),
@@ -632,13 +664,13 @@ class _HomePageState extends State<HomePage> {
             Hud.isCompact(context)
                 ? '03 / Cost · CNY'
                 : '03 / Cost Engine (CNY)',
-            color: Hud.emerald),
+            color: context.hud.emerald),
         const SizedBox(height: 10),
         Text('¥${monthly.toStringAsFixed(2)}',
             style:
                 Hud.mono.copyWith(fontSize: 30, fontWeight: FontWeight.w900)),
         Text('/ 月 · 年化 ¥${(monthly * 12).toStringAsFixed(2)}',
-            style: const TextStyle(fontSize: 11, color: Hud.muted)),
+            style: TextStyle(fontSize: 11, color: context.hud.muted)),
         const SizedBox(height: 12),
         Text(
             exchangeRatesToCny.entries
@@ -646,7 +678,7 @@ class _HomePageState extends State<HomePage> {
                     e.key != 'CNY' && _cards.any((c) => c.currency == e.key))
                 .map((e) => '${e.key} ${e.value}')
                 .join('  '),
-            style: Hud.mono.copyWith(fontSize: 10.5, color: Hud.dim)),
+            style: Hud.mono.copyWith(fontSize: 10.5, color: context.hud.dim)),
       ]),
       _BentoTile(
         key: const Key('estk-bento'),
@@ -695,12 +727,12 @@ class _HomePageState extends State<HomePage> {
   Widget _searchBar(int shown) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: Hud.panel,
+          color: context.hud.panel,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Hud.line),
+          border: Border.all(color: context.hud.line),
         ),
         child: Row(children: [
-          const Icon(Icons.search, size: 18, color: Hud.dim),
+          Icon(Icons.search, size: 18, color: context.hud.dim),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
@@ -714,7 +746,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           Text('$shown / ${_cards.length}',
-              style: Hud.mono.copyWith(fontSize: 11, color: Hud.muted)),
+              style: Hud.mono.copyWith(fontSize: 11, color: context.hud.muted)),
           if (_mediaFilter != null ||
               _country != null ||
               _slot != null ||
@@ -736,10 +768,10 @@ class _HomePageState extends State<HomePage> {
       return Padding(
         padding: const EdgeInsets.all(40),
         child: Column(children: [
-          const Icon(Icons.sim_card_outlined, size: 48, color: Hud.dim),
+          Icon(Icons.sim_card_outlined, size: 48, color: context.hud.dim),
           const SizedBox(height: 8),
           Text(_cards.isEmpty ? '金库为空，点击「新增 SIM」或从 JSON 备份导入' : '当前筛选无卡片',
-              style: const TextStyle(color: Hud.muted)),
+              style: TextStyle(color: context.hud.muted)),
         ]),
       );
     }
@@ -778,18 +810,19 @@ class _BentoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => CustomPaint(
-      foregroundPainter: const GlassRimPainter(radius: 18),
+      foregroundPainter:
+          GlassRimPainter(radius: 18, color: context.hud.glassRim),
       child: Container(
         padding: EdgeInsets.all(Hud.isCompact(context) ? 14 : 16),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF0D1730), Color(0xFF070D1C)],
+            colors: context.hud.tileGradient,
           ),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Hud.line),
-          boxShadow: Hud.glassShadow,
+          border: Border.all(color: context.hud.line),
+          boxShadow: context.hud.glassShadow,
         ),
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: children),

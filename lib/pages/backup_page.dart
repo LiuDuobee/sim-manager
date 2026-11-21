@@ -78,9 +78,9 @@ class _BackupPageState extends State<BackupPage> {
             height: 240,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Hud.panel,
+              color: context.hud.panel,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Hud.line),
+              border: Border.all(color: context.hud.line),
             ),
             child: SingleChildScrollView(
               child: SelectableText(_json,
@@ -110,7 +110,7 @@ class _BackupPageState extends State<BackupPage> {
             ),
           ]),
           const SizedBox(height: 28),
-          const HudLabel('导入（覆盖当前金库）', color: Hud.amber),
+          HudLabel('导入（覆盖当前金库）', color: context.hud.amber),
           const SizedBox(height: 10),
           TextField(
             key: const Key('import-field'),

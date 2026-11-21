@@ -2,59 +2,59 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'features/hud/hud_theme.dart';
+import 'features/settings/theme_mode.dart';
 import 'pages/home_page.dart';
 
 export 'models/sim_card.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Draw behind transparent status/navigation bars; pages pad themselves
   // with SafeArea / viewPadding.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  runApp(const SimVaultApp());
+  final themeMode = ThemeModeController();
+  await themeMode.load();
+  runApp(SimVaultApp(themeMode: themeMode));
 }
 
-const simVaultSystemUi = SystemUiOverlayStyle(
-  statusBarColor: Colors.transparent,
-  statusBarIconBrightness: Brightness.light,
-  statusBarBrightness: Brightness.dark,
-  systemNavigationBarColor: Colors.transparent,
-  systemNavigationBarDividerColor: Colors.transparent,
-  systemNavigationBarIconBrightness: Brightness.light,
-  systemNavigationBarContrastEnforced: false,
-);
-
-class SimVaultApp extends StatelessWidget {
-  const SimVaultApp({super.key, this.home});
+class SimVaultApp extends StatefulWidget {
+  const SimVaultApp({super.key, this.home, this.themeMode});
 
   final Widget? home;
 
+  /// Loaded before runApp in production; tests let the app load it.
+  final ThemeModeController? themeMode;
+
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'SIMVault v3.2 · World Card Atlas',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          brightness: Brightness.dark,
-          useMaterial3: true,
-          scaffoldBackgroundColor: Hud.bg,
-          colorScheme: ColorScheme.fromSeed(
-              seedColor: Hud.sky,
-              brightness: Brightness.dark,
-              surface: Hud.panel),
-          appBarTheme: const AppBarTheme(
-            systemOverlayStyle: simVaultSystemUi,
-            backgroundColor: Hud.bg,
-            surfaceTintColor: Colors.transparent,
+  State<SimVaultApp> createState() => _SimVaultAppState();
+}
+
+class _SimVaultAppState extends State<SimVaultApp> {
+  late final ThemeModeController _themeMode =
+      widget.themeMode ?? (ThemeModeController()..load());
+
+  @override
+  void dispose() {
+    if (widget.themeMode == null) _themeMode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ThemeModeScope(
+        controller: _themeMode,
+        child: ValueListenableBuilder<ThemeMode>(
+          valueListenable: _themeMode,
+          builder: (context, mode, _) => MaterialApp(
+            title: 'SIMVault v3.2 · World Card Atlas',
+            debugShowCheckedModeBanner: false,
+            themeMode: mode,
+            theme: buildHudTheme(HudPalette.light),
+            darkTheme: buildHudTheme(HudPalette.dark),
+            builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+                value: hudSystemUi(Theme.of(context).brightness),
+                child: child!),
+            home: widget.home ?? const HomePage(),
           ),
-          fontFamilyFallback: const [
-            'Microsoft YaHei',
-            'PingFang SC',
-            'Noto Sans CJK SC',
-            'Noto Sans SC',
-          ],
         ),
-        builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-            value: simVaultSystemUi, child: child!),
-        home: home ?? const HomePage(),
       );
 }

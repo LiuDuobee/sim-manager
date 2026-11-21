@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../hud/hud_theme.dart';
 import 'globe_controller.dart';
 import 'orthographic.dart';
 import 'topojson.dart';
@@ -193,6 +194,7 @@ class _AtlasGlobeState extends State<AtlasGlobe>
                 nodes: widget.nodes,
                 highlightedCodes: widget.highlightedCodes,
                 selectedCode: widget.selectedCode,
+                palette: context.hud,
               ),
             ),
           ),
@@ -209,6 +211,7 @@ class GlobePainter extends CustomPainter {
     required this.nodes,
     required this.highlightedCodes,
     required this.selectedCode,
+    this.palette = HudPalette.dark,
   }) : super(repaint: controller);
 
   final GlobeController controller;
@@ -216,6 +219,7 @@ class GlobePainter extends CustomPainter {
   final List<GlobeNode> nodes;
   final Set<String> highlightedCodes;
   final String? selectedCode;
+  final HudPalette palette;
 
   static final List<List<(double, double)>> _graticule = [
     for (var lon = -180.0; lon < 180; lon += 15)
@@ -229,14 +233,15 @@ class GlobePainter extends CustomPainter {
     final proj = projectionFor(controller, size);
     final o = proj.origin, r = proj.radius;
     final sphere = Rect.fromCircle(center: o, radius: r);
+    final p = palette;
 
     canvas.drawCircle(
       o,
       r * 1.12,
       Paint()
         ..shader = RadialGradient(colors: [
-          const Color(0xFF38BDF8).withValues(alpha: .22),
-          const Color(0xFF38BDF8).withValues(alpha: 0),
+          p.halo,
+          p.halo.withValues(alpha: 0),
         ], stops: const [
           .82,
           1
@@ -246,11 +251,11 @@ class GlobePainter extends CustomPainter {
       o,
       r,
       Paint()
-        ..shader = const RadialGradient(
-          center: Alignment(-.35, -.4),
+        ..shader = RadialGradient(
+          center: const Alignment(-.35, -.4),
           radius: 1.1,
-          colors: [Color(0xFF12305A), Color(0xFF071530), Color(0xFF030814)],
-          stops: [0, .6, 1],
+          colors: p.ocean,
+          stops: const [0, .6, 1],
         ).createShader(sphere),
     );
 
@@ -266,17 +271,15 @@ class GlobePainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = .6
-          ..color = const Color(0xFF38BDF8).withValues(alpha: .14));
+          ..color = p.grid);
 
-    final landFill = Paint()..color = const Color(0xFF1B3354);
-    final activeFill = Paint()
-      ..color = const Color(0xFF0EA5E9).withValues(alpha: .55);
-    final selectedFill = Paint()
-      ..color = const Color(0xFFFBBF24).withValues(alpha: .75);
+    final landFill = Paint()..color = p.land;
+    final activeFill = Paint()..color = p.landActive;
+    final selectedFill = Paint()..color = p.landSelected;
     final border = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = .7
-      ..color = const Color(0xFF7DD3FC).withValues(alpha: .35);
+      ..color = p.landBorder;
 
     for (final country in countries) {
       final path = Path()..fillType = PathFillType.evenOdd;
@@ -305,7 +308,7 @@ class GlobePainter extends CustomPainter {
         ..shader = RadialGradient(
           center: const Alignment(-.45, -.45),
           radius: 1.35,
-          colors: [Colors.transparent, Colors.black.withValues(alpha: .55)],
+          colors: [p.nightShade.withValues(alpha: 0), p.nightShade],
           stops: const [.55, 1],
         ).createShader(sphere),
     );
@@ -317,7 +320,7 @@ class GlobePainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.2
-          ..color = const Color(0xFF7DD3FC).withValues(alpha: .45));
+          ..color = p.globeRim);
 
     for (final (node, p) in visibleNodes(proj, nodes)) {
       _paintNode(canvas, node, p);
@@ -335,12 +338,12 @@ class GlobePainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.4
-          ..color = Colors.white);
+          ..color = palette.nodeRing);
     final tp = TextPainter(
       text: TextSpan(
         text: '${node.code}  ${node.count}',
-        style: const TextStyle(
-            color: Colors.white,
+        style: TextStyle(
+            color: palette.nodeLabelFg,
             fontSize: 10.5,
             fontWeight: FontWeight.w700,
             fontFamily: 'monospace'),
@@ -351,13 +354,14 @@ class GlobePainter extends CustomPainter {
       Rect.fromLTWH(p.dx + 9, p.dy - 9, tp.width + 12, 18),
       const Radius.circular(9),
     );
-    canvas.drawRRect(
-        rect, Paint()..color = const Color(0xFF020617).withValues(alpha: .82));
+    canvas.drawRRect(rect, Paint()..color = palette.nodeLabelBg);
     canvas.drawRRect(
         rect,
         Paint()
           ..style = PaintingStyle.stroke
-          ..color = (selected ? const Color(0xFFFBBF24) : node.color)
+          ..color = (selected
+                  ? palette.landSelected.withValues(alpha: 1)
+                  : node.color)
               .withValues(alpha: .8));
     tp.paint(canvas, Offset(p.dx + 15, p.dy - tp.height / 2));
   }
@@ -367,6 +371,7 @@ class GlobePainter extends CustomPainter {
       old.countries != countries ||
       old.nodes != nodes ||
       old.selectedCode != selectedCode ||
+      old.palette != palette ||
       old.highlightedCodes != highlightedCodes;
 }
 

@@ -108,11 +108,25 @@ class FlipSimCardState extends State<FlipSimCard>
     super.dispose();
   }
 
+  // A SIM card is a physical, dark object: it keeps its dark face and dark
+  // HUD palette in both app themes.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Theme(
+        data: buildHudTheme(HudPalette.dark),
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(color: Colors.white),
+          child: IconTheme.merge(
+            data: const IconThemeData(color: Colors.white),
+            child: Builder(builder: _build),
+          ),
+        ),
+      );
+
+  Widget _build(BuildContext context) {
     final card = widget.card;
-    final border =
-        widget.highlighted ? Hud.amber : Colors.white.withValues(alpha: .14);
+    final border = widget.highlighted
+        ? context.hud.amber
+        : Colors.white.withValues(alpha: .14);
     return GestureDetector(
       onTap: toggle,
       child: AnimatedBuilder(
@@ -285,7 +299,7 @@ class _Front extends StatelessWidget {
   Widget build(BuildContext context) {
     final days = card.daysRemaining();
     final tier = urgencyTierFor(days);
-    final color = Hud.tierColor(tier);
+    final color = context.hud.tierColor(tier);
     final progress = (days / math.max(card.keepAliveCycleDays, 1))
         .clamp(0.0, 1.0)
         .toDouble();
@@ -295,7 +309,9 @@ class _Front extends StatelessWidget {
         child: Row(children: [
           Text(card.countryCode,
               style: Hud.mono.copyWith(
-                  fontSize: 12, fontWeight: FontWeight.w800, color: Hud.muted)),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: context.hud.muted)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(card.carrierName,
@@ -303,15 +319,16 @@ class _Front extends StatelessWidget {
                 style:
                     const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
           ),
-          _Tag(card.mediaType.label, color: Hud.mediaColor(card.mediaType)),
+          _Tag(card.mediaType.label,
+              color: context.hud.mediaColor(card.mediaType)),
           const SizedBox(width: 6),
           _Tag(card.isActive ? 'ONLINE' : 'STORED',
-              color: card.isActive ? Hud.emerald : Hud.sky),
+              color: card.isActive ? context.hud.emerald : context.hud.sky),
         ]),
       ),
       Text(card.planName,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 11, color: Hud.muted)),
+          style: TextStyle(fontSize: 11, color: context.hud.muted)),
       const SizedBox(height: 14),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SimChip(),
@@ -328,7 +345,8 @@ class _Front extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                   '余额 ${card.balance.toStringAsFixed(card.balance % 1 == 0 ? 0 : 2)} ${card.currency} · ≈ ¥${card.monthlyCny.toStringAsFixed(1)}/月',
-                  style: Hud.mono.copyWith(fontSize: 10.5, color: Hud.muted)),
+                  style: Hud.mono
+                      .copyWith(fontSize: 10.5, color: context.hud.muted)),
             ]),
           ),
         ),
@@ -337,14 +355,14 @@ class _Front extends StatelessWidget {
       Wrap(spacing: 6, runSpacing: 4, children: [
         _Tag('${card.hostName} · ${card.slotDetail}'),
         if (card.estkSlotNumber != null)
-          _Tag('eSTK #${card.estkSlotNumber}', color: Hud.amber),
+          _Tag('eSTK #${card.estkSlotNumber}', color: context.hud.amber),
       ]),
       const Spacer(),
       Row(children: [
         Expanded(
           child: Text(
               '到期 ${DateFormat('yyyy-MM-dd').format(card.nextDeadlineDate)}',
-              style: Hud.mono.copyWith(fontSize: 11, color: Hud.muted)),
+              style: Hud.mono.copyWith(fontSize: 11, color: context.hud.muted)),
         ),
         Text('${tier.code} · ${days < 0 ? '已过期 ${-days}' : '剩 $days'} 天',
             key: Key('days-${card.id}'),
@@ -364,7 +382,7 @@ class _Front extends StatelessWidget {
       const SizedBox(height: 10),
       Row(children: [
         _smallButton('保号打卡', onCheckIn,
-            key: Key('checkin-${card.id}'), color: Hud.emerald),
+            key: Key('checkin-${card.id}'), color: context.hud.emerald),
         const Spacer(),
         _smallButton('翻面 ↻', onFlip, key: Key('flip-${card.id}')),
       ]),
@@ -405,7 +423,8 @@ class _Back extends StatelessWidget {
             SizedBox(
                 width: 54,
                 child: Text(k,
-                    style: Hud.mono.copyWith(fontSize: 10, color: Hud.dim))),
+                    style: Hud.mono
+                        .copyWith(fontSize: 10, color: context.hud.dim))),
             Expanded(
                 child: Text(v,
                     maxLines: 2,
@@ -429,7 +448,7 @@ class _Back extends StatelessWidget {
       kv('PIN/PUK', '${_mask(card.pin1)} / ${_mask(card.puk1)}'),
       if (card.esimLpaCode.isNotEmpty) kv('LPA', _mask(card.esimLpaCode)),
       const SizedBox(height: 4),
-      const HudLabel('保号规则', color: Hud.amber),
+      HudLabel('保号规则', color: context.hud.amber),
       const SizedBox(height: 4),
       kv('周期',
           '每 ${card.keepAliveCycleDays} 天 · ${card.keepAliveAction.isEmpty ? '未设置动作' : card.keepAliveAction}'),
@@ -441,12 +460,12 @@ class _Back extends StatelessWidget {
       const Spacer(),
       Wrap(spacing: 6, runSpacing: Hud.isCompact(context) ? 0 : 6, children: [
         _smallButton('保号打卡', onCheckIn,
-            key: Key('back-checkin-${card.id}'), color: Hud.emerald),
+            key: Key('back-checkin-${card.id}'), color: context.hud.emerald),
         _smallButton('导出 .ics', onExportIcs,
-            key: Key('ics-${card.id}'), color: Hud.sky),
+            key: Key('ics-${card.id}'), color: context.hud.sky),
         _smallButton('编辑', onEdit, key: Key('edit-${card.id}')),
         _smallButton('删除', onDelete,
-            key: Key('delete-${card.id}'), color: Hud.rose),
+            key: Key('delete-${card.id}'), color: context.hud.rose),
         _smallButton('返回正面 ↺', onFlip, key: Key('unflip-${card.id}')),
       ]),
     ]);

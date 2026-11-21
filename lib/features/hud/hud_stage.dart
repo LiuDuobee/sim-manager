@@ -11,8 +11,8 @@ import 'hud_theme.dart';
 
 /// Builds one globe node per country that has (filtered) cards. Positions come
 /// from [countryFocus] or the country's polygon centroid in the atlas.
-List<GlobeNode> buildGlobeNodes(
-    List<SimCard> cards, List<GeoCountry> countries) {
+List<GlobeNode> buildGlobeNodes(List<SimCard> cards, List<GeoCountry> countries,
+    {HudPalette palette = HudPalette.dark}) {
   final byCode = <String, List<SimCard>>{};
   for (final c in cards) {
     byCode.putIfAbsent(c.countryCode, () => []).add(c);
@@ -29,7 +29,7 @@ List<GlobeNode> buildGlobeNodes(
       lon: pos.$1,
       lat: pos.$2,
       count: group.length,
-      color: Hud.tierColor(worst),
+      color: palette.tierColor(worst),
     ));
   });
   return nodes;
@@ -87,15 +87,17 @@ class HudStage extends StatelessWidget {
         : allCards.where((c) => c.mediaType == mediaFilter).toList();
     final codes = <String>{for (final c in mediaCards) c.countryCode}.toList()
       ..sort();
-    final nodes = buildGlobeNodes(filteredCards, countries ?? const []);
+    final nodes = buildGlobeNodes(filteredCards, countries ?? const [],
+        palette: context.hud);
 
     return LayoutBuilder(builder: (context, constraints) {
       if (constraints.maxWidth < Hud.compactWidth) {
-        return _compactStage(constraints.maxWidth, mediaCards, codes, nodes);
+        return _compactStage(
+            context, constraints.maxWidth, mediaCards, codes, nodes);
       }
       final wide = constraints.maxWidth >= 980;
       return CustomPaint(
-        painter: const _CockpitFramePainter(),
+        painter: _CockpitFramePainter(context.hud),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
           child: Column(children: [
@@ -114,7 +116,7 @@ class HudStage extends StatelessWidget {
               child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(child: _globeArea(nodes)),
+                    Expanded(child: _globeArea(context, nodes)),
                     if (wide) ...[
                       const SizedBox(width: 14),
                       SizedBox(
@@ -141,12 +143,12 @@ class HudStage extends StatelessWidget {
   /// Phone portrait: the same cockpit, re-stacked. HUD strip rows scroll
   /// sideways, the globe gets a near-square canopy, telemetry moves out of
   /// the canopy into a 2×2 readout grid and the radar follows as a list.
-  Widget _compactStage(double width, List<SimCard> mediaCards,
-      List<String> codes, List<GlobeNode> nodes) {
+  Widget _compactStage(BuildContext context, double width,
+      List<SimCard> mediaCards, List<String> codes, List<GlobeNode> nodes) {
     final globeHeight = (width - 20).clamp(300.0, 440.0);
     return CustomPaint(
       key: const Key('hud-compact'),
-      painter: const _CockpitFramePainter(),
+      painter: _CockpitFramePainter(context.hud),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 12, 10, 14),
         child: Column(children: [
@@ -162,7 +164,8 @@ class HudStage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           SizedBox(
-              height: globeHeight, child: _globeArea(nodes, compact: true)),
+              height: globeHeight,
+              child: _globeArea(context, nodes, compact: true)),
           const SizedBox(height: 10),
           _Telemetry(
               compact: true,
@@ -179,7 +182,8 @@ class HudStage extends StatelessWidget {
 
   /// The globe stage. Zoomed globes paint past their layout box, so the
   /// whole stage is clipped to its frame and never covers the HUD strip.
-  Widget _globeArea(List<GlobeNode> nodes, {bool compact = false}) {
+  Widget _globeArea(BuildContext context, List<GlobeNode> nodes,
+      {bool compact = false}) {
     final atlas = countries;
     return ClipRect(
         key: const Key('globe-stage'),
@@ -188,7 +192,7 @@ class HudStage extends StatelessWidget {
             child: atlas == null
                 ? Center(
                     child: Text(atlasError ?? '正在加载 world-atlas 110m…',
-                        style: const TextStyle(color: Hud.muted)))
+                        style: TextStyle(color: context.hud.muted)))
                 : AtlasGlobe(
                     key: const Key('atlas-globe'),
                     controller: controller,
@@ -199,9 +203,9 @@ class HudStage extends StatelessWidget {
                     onCountryTap: onGlobeCountryTap,
                   ),
           ),
-          const Positioned.fill(
-              child:
-                  IgnorePointer(child: CustomPaint(painter: _CanopyPainter()))),
+          Positioned.fill(
+              child: IgnorePointer(
+                  child: CustomPaint(painter: _CanopyPainter(context.hud)))),
           if (compact)
             const Positioned(
                 left: 6,
@@ -227,8 +231,8 @@ class HudStage extends StatelessWidget {
                               ? 'Natural Earth 110m TopoJSON'
                               : 'Natural Earth 110m TopoJSON · ${atlas.length} 国 · '
                                   '${atlas.fold<int>(0, (s, c) => s + c.pointCount)} 顶点',
-                          style:
-                              Hud.mono.copyWith(fontSize: 10, color: Hud.muted),
+                          style: Hud.mono
+                              .copyWith(fontSize: 10, color: context.hud.muted),
                         ),
                       ),
                     ]),
@@ -292,7 +296,7 @@ class _HudStrip extends StatelessWidget {
           key: Key('media-${m.name}'),
           label: m.label,
           count: count(m),
-          color: Hud.mediaColor(m),
+          color: context.hud.mediaColor(m),
           selected: mediaFilter == m,
           onTap: () => onMediaFilter(mediaFilter == m ? null : m),
         ),
@@ -302,7 +306,7 @@ class _HudStrip extends StatelessWidget {
         key: const Key('country-all'),
         label: 'ALL',
         count: mediaCards.length,
-        color: Colors.white,
+        color: context.hud.fg,
         selected: selectedCountry == null,
         onTap: () => onSelectCountry(null),
       ),
@@ -311,7 +315,7 @@ class _HudStrip extends StatelessWidget {
           key: Key('country-$code'),
           label: code,
           count: mediaCards.where((c) => c.countryCode == code).length,
-          color: Hud.amber,
+          color: context.hud.amber,
           selected: selectedCountry == code,
           onTap: () => onSelectCountry(code),
         ),
@@ -322,7 +326,9 @@ class _HudStrip extends StatelessWidget {
                 width: 38,
                 child: Text(label,
                     style: Hud.mono.copyWith(
-                        fontSize: 10, letterSpacing: 1.2, color: Hud.dim))),
+                        fontSize: 10,
+                        letterSpacing: 1.2,
+                        color: context.hud.dim))),
             Expanded(
               child: SingleChildScrollView(
                 key: key,
@@ -340,7 +346,7 @@ class _HudStrip extends StatelessWidget {
         radius: 16,
         child: Column(children: [
           row('介质', media, const Key('media-row')),
-          Container(height: 1, color: Hud.glassEdge),
+          Container(height: 1, color: context.hud.glassEdge),
           row('聚焦', countries, const Key('country-row')),
         ]),
       );
@@ -391,37 +397,37 @@ class _Telemetry extends StatelessWidget {
                   math.cos(p0) * math.cos(p) * math.cos(l) >
               0;
         }).length;
-        Widget row(String k, String v, {Color color = Colors.white}) => Padding(
+        Widget row(String k, String v, {Color? color}) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 SizedBox(
                     width: 64,
                     child: Text(k,
-                        style:
-                            Hud.mono.copyWith(fontSize: 10, color: Hud.dim))),
+                        style: Hud.mono
+                            .copyWith(fontSize: 10, color: context.hud.dim))),
                 Text(v,
                     style: Hud.mono.copyWith(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: color)),
+                        color: color ?? context.hud.fg)),
               ]),
             );
         final nearestText = nearest == null
             ? '—'
             : '${nearest.carrierName} · ${nearest.daysRemaining()}d';
-        final nearestColor =
-            nearest == null ? Colors.white : Hud.tierColor(nearest.urgency());
+        final nearestColor = nearest == null
+            ? context.hud.fg
+            : context.hud.tierColor(nearest.urgency());
         if (compact) {
-          Widget cell(String k, String v, {Color color = Colors.white}) =>
-              Expanded(
+          Widget cell(String k, String v, {Color? color}) => Expanded(
                 child: Container(
                   margin: const EdgeInsets.all(3),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0x66020617),
+                    color: context.hud.well,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Hud.glassEdge),
+                    border: Border.all(color: context.hud.glassEdge),
                   ),
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -430,7 +436,7 @@ class _Telemetry extends StatelessWidget {
                             style: Hud.mono.copyWith(
                                 fontSize: 9.5,
                                 letterSpacing: 1.2,
-                                color: Hud.dim)),
+                                color: context.hud.dim)),
                         const SizedBox(height: 3),
                         Text(v,
                             maxLines: 1,
@@ -438,7 +444,7 @@ class _Telemetry extends StatelessWidget {
                             style: Hud.mono.copyWith(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w700,
-                                color: color)),
+                                color: color ?? context.hud.fg)),
                       ]),
                 ),
               );
@@ -517,14 +523,17 @@ class _GlobeControls extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: on ? Hud.sky.withValues(alpha: .25) : null,
+                      color: on ? context.hud.sky.withValues(alpha: .25) : null,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                          color: Colors.white.withValues(alpha: .12)),
+                          color: context.hud.isDark
+                              ? const Color(0x1FFFFFFF)
+                              : context.hud.wellEdge),
                     ),
                     child: Text(label,
                         style: Hud.mono.copyWith(
-                            fontSize: 11, color: on ? Hud.sky : Colors.white)),
+                            fontSize: 11,
+                            color: on ? context.hud.sky : context.hud.fg)),
                   ),
                 ),
               );
@@ -539,12 +548,12 @@ class _GlobeControls extends StatelessWidget {
                     onPressed: onTap,
                     style: IconButton.styleFrom(
                       backgroundColor: on
-                          ? Hud.sky.withValues(alpha: .22)
-                          : const Color(0x8C0B1222),
-                      side: const BorderSide(color: Hud.glassRim),
+                          ? context.hud.sky.withValues(alpha: .22)
+                          : context.hud.control,
+                      side: BorderSide(color: context.hud.glassRim),
                     ),
                     icon: Icon(icon,
-                        size: 20, color: on ? Hud.sky : Colors.white),
+                        size: 20, color: on ? context.hud.sky : context.hud.fg),
                   ),
                 );
             return Column(mainAxisSize: MainAxisSize.min, children: [
@@ -596,19 +605,21 @@ class _RadarDrawer extends StatelessWidget {
     final monthly = cards.fold<double>(0, (s, c) => s + c.monthlyCny);
     Widget radarItem(SimCard c) {
       final tier = c.urgency();
-      final color = Hud.tierColor(tier);
+      final color = context.hud.tierColor(tier);
       return Container(
         padding: EdgeInsets.fromLTRB(
             10, compact ? 4 : 10, compact ? 2 : 10, compact ? 4 : 10),
         decoration: BoxDecoration(
-          color: const Color(0x99020617),
+          color: context.hud.well,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: .06)),
+          border: Border.all(color: context.hud.wellEdge),
         ),
         child: Row(children: [
           Text(c.countryCode,
               style: Hud.mono.copyWith(
-                  fontSize: 11, color: Hud.muted, fontWeight: FontWeight.w700)),
+                  fontSize: 11,
+                  color: context.hud.muted,
+                  fontWeight: FontWeight.w700)),
           const SizedBox(width: 8),
           Expanded(
             child:
@@ -619,7 +630,7 @@ class _RadarDrawer extends StatelessWidget {
                       fontSize: 13, fontWeight: FontWeight.w700)),
               Text('${c.hostName} · ${c.slotDetail}',
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: Hud.dim)),
+                  style: TextStyle(fontSize: 11, color: context.hud.dim)),
             ]),
           ),
           _Badge('${tier.code} · ${c.daysRemaining()}d', color),
@@ -634,7 +645,7 @@ class _RadarDrawer extends StatelessWidget {
                 : const BoxConstraints(),
             padding: const EdgeInsets.all(4),
             onPressed: () => onCheckIn(c),
-            icon: const Icon(Icons.check, size: 18, color: Hud.emerald),
+            icon: Icon(Icons.check, size: 18, color: context.hud.emerald),
           ),
         ]),
       );
@@ -643,24 +654,27 @@ class _RadarDrawer extends StatelessWidget {
     return GlassPanel(
       padding: const EdgeInsets.all(14),
       radius: 18,
-      tint: const Color(0xB30B1222),
+      tint:
+          context.hud.isDark ? const Color(0xB30B1222) : context.hud.glassTint,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Expanded(child: HudLabel('Keep-Alive Radar', color: Hud.amber)),
-          _Badge('P1: $p1', Hud.rose),
+          Expanded(
+              child: HudLabel('Keep-Alive Radar', color: context.hud.amber)),
+          _Badge('P1: $p1', context.hud.rose),
           const SizedBox(width: 6),
-          _Badge('P2: $p2', Hud.amber),
+          _Badge('P2: $p2', context.hud.amber),
         ]),
         const SizedBox(height: 4),
-        const Text('按保号死线排序 · P1≤15天 · P2≤60天',
-            style: TextStyle(fontSize: 11, color: Hud.dim)),
+        Text('按保号死线排序 · P1≤15天 · P2≤60天',
+            style: TextStyle(fontSize: 11, color: context.hud.dim)),
         const SizedBox(height: 10),
         if (compact)
           sorted.isEmpty
-              ? const Padding(
+              ? Padding(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   child: Center(
-                      child: Text('当前筛选无卡片', style: TextStyle(color: Hud.dim))))
+                      child: Text('当前筛选无卡片',
+                          style: TextStyle(color: context.hud.dim))))
               : Column(children: [
                   for (final c in sorted)
                     Padding(
@@ -670,17 +684,18 @@ class _RadarDrawer extends StatelessWidget {
         else
           Expanded(
             child: sorted.isEmpty
-                ? const Center(
-                    child: Text('当前筛选无卡片', style: TextStyle(color: Hud.dim)))
+                ? Center(
+                    child: Text('当前筛选无卡片',
+                        style: TextStyle(color: context.hud.dim)))
                 : ListView.separated(
                     itemCount: sorted.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, i) => radarItem(sorted[i]),
                   ),
           ),
-        const Divider(color: Hud.line),
+        Divider(color: context.hud.line),
         Text('月均成本 ¥${monthly.toStringAsFixed(2)} / 月',
-            style: Hud.mono.copyWith(fontSize: 12, color: Hud.muted)),
+            style: Hud.mono.copyWith(fontSize: 12, color: context.hud.muted)),
       ]),
     );
   }
@@ -708,7 +723,9 @@ class _Badge extends StatelessWidget {
 
 /// Outer cockpit bezel: chamfered capsule outline with corner brackets.
 class _CockpitFramePainter extends CustomPainter {
-  const _CockpitFramePainter();
+  const _CockpitFramePainter(this.p);
+
+  final HudPalette p;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -727,10 +744,10 @@ class _CockpitFramePainter extends CustomPainter {
     canvas.drawPath(
       frame,
       Paint()
-        ..shader = const LinearGradient(
+        ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF0A1528), Color(0xFF050B17), Color(0xFF02050C)],
+          colors: p.stageGradient,
         ).createShader(Offset.zero & size),
     );
     canvas.drawPath(
@@ -738,11 +755,11 @@ class _CockpitFramePainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.2
-          ..color = Hud.sky.withValues(alpha: .28));
+          ..color = p.sky.withValues(alpha: .28));
     final bracket = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
-      ..color = Hud.sky.withValues(alpha: .7);
+      ..color = p.sky.withValues(alpha: .7);
     canvas.drawPath(
         Path()
           ..moveTo(c + 30, 0)
@@ -760,12 +777,14 @@ class _CockpitFramePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(_CockpitFramePainter oldDelegate) => oldDelegate.p != p;
 }
 
 /// Canopy arc + tick marks framing the globe like a half cockpit window.
 class _CanopyPainter extends CustomPainter {
-  const _CanopyPainter();
+  const _CanopyPainter(this.p);
+
+  final HudPalette p;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -774,12 +793,12 @@ class _CanopyPainter extends CustomPainter {
     final arc = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
-      ..color = Hud.sky.withValues(alpha: .22);
+      ..color = p.sky.withValues(alpha: .22);
     canvas.drawArc(Rect.fromCircle(center: center, radius: r), math.pi * .85,
         math.pi * 1.3, false, arc);
     final tick = Paint()
       ..strokeWidth = 1
-      ..color = Hud.sky.withValues(alpha: .35);
+      ..color = p.sky.withValues(alpha: .35);
     for (var i = 0; i <= 36; i++) {
       final a = math.pi * .85 + math.pi * 1.3 * i / 36;
       final len = i % 6 == 0 ? 10.0 : 4.0;
@@ -790,10 +809,7 @@ class _CanopyPainter extends CustomPainter {
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [
-          Colors.transparent,
-          const Color(0xFF02050C).withValues(alpha: .85)
-        ],
+        colors: [p.stageFade.withValues(alpha: 0), p.stageFade],
       ).createShader(
           Rect.fromLTWH(0, size.height * .82, size.width, size.height * .18));
     canvas.drawRect(
@@ -802,5 +818,5 @@ class _CanopyPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(_CanopyPainter oldDelegate) => oldDelegate.p != p;
 }
