@@ -1153,7 +1153,8 @@ class _HomePageState extends State<HomePage> {
                 child: Container(height: 2, color: h.line)),
             for (final d in [0, 30, 60, 90, 120])
               Positioned(
-                left: (w - 1) * d / riverDays,
+                left: d == riverDays ? null : (w - 1) * d / riverDays,
+                right: d == riverDays ? 0 : null,
                 top: 20,
                 child: Text(d == 0 ? '今天' : '+$d',
                     style: Hud.mono.copyWith(fontSize: 9, color: h.dim)),
