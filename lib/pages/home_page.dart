@@ -1655,7 +1655,7 @@ class _HomePageState extends State<HomePage> {
                           height: 1.1,
                           fontWeight: FontWeight.w900,
                           color: h.tierColor(soon.urgency()))),
-                  Text('${soon.carrierName} · ${soon.keepAliveType.verb}',
+                  Text('${soon.carrierName} · ${soon.actionVerb}',
                       style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,

@@ -270,6 +270,8 @@ void main() {
       final river = buildTimeRiver([c], now: now);
       expect(river.single.label, '套餐到期');
       expect(river.single.days, 6);
+      expect(c.actionVerb, '套餐到期');
+      expect(card('v').actionVerb, '需活跃');
     });
   });
 

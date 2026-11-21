@@ -514,6 +514,10 @@ class SimCard {
   /// Whether [trackedDeadline] is a plan expiry rather than a keep-alive one.
   bool get tracksPlanExpiry => !keepAliveEnabled && planExpiry != null;
 
+  /// What the radar / hero asks for: 需活跃 / 需充值, or 套餐到期 for a
+  /// rule-less data plan.
+  String get actionVerb => tracksPlanExpiry ? '套餐到期' : keepAliveType.verb;
+
   int? trackedDays({DateTime? now}) {
     final d = trackedDeadline;
     return d == null ? null : remainingDays(d, now: now);

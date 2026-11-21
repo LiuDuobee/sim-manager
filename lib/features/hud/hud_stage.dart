@@ -633,7 +633,7 @@ class _RadarDrawer extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                       fontSize: 13, fontWeight: FontWeight.w700)),
-              Text('${c.keepAliveType.verb} · ${c.hostName} · ${c.slotDetail}',
+              Text('${c.actionVerb} · ${c.hostName} · ${c.slotDetail}',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 11, color: context.hud.dim)),
             ]),
