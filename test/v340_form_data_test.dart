@@ -423,8 +423,7 @@ void main() {
       expect(c.keepAliveEnabled, isFalse);
     });
 
-    testWidgets('picking a region keeps a data card rule-less',
-        (tester) async {
+    testWidgets('picking a region keeps a data card rule-less', (tester) async {
       final result = await openForm(tester);
       await choose(tester, 'field-kind', '旅游卡');
       await tapKey(tester, 'pick-region');
