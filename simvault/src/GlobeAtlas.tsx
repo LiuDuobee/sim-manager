@@ -127,11 +127,11 @@ export function GlobeAtlas({ cards, paused, focusCountry, onSelectCountry }: Glo
         <circle className="atlas-sphere" cx={width / 2} cy={height / 2} r={220 * zoom} fill="url(#atlas-sphere)" />
         <path className="atlas-graticule" d={path(graticule) || undefined} />
         <g clipPath="url(#atlas-clip)">
-          {countryFeatures.map((country) => {
+          {countryFeatures.map((country, index) => {
             const iso = numericToIso[String(country.id)]
             const hasCards = Boolean(iso && cardsByCountry[iso])
             const selected = iso === focusCountry
-            return <path key={String(country.id)} d={path(country as GeoPermissibleObjects) || undefined} className={`atlas-country ${hasCards ? 'has-cards' : ''} ${selected ? 'selected' : ''}`} onClick={() => { if (hasCards && !drag.current.moved) onSelectCountry(iso) }} />
+            return <path key={country.id ?? `unnamed-${index}`} d={path(country as GeoPermissibleObjects) || undefined} className={`atlas-country ${hasCards ? 'has-cards' : ''} ${selected ? 'selected' : ''}`} onClick={() => { if (hasCards && !drag.current.moved) onSelectCountry(iso) }} />
           })}
         </g>
         {visibleCountries.map((iso) => {
