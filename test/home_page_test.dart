@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -114,5 +115,66 @@ void main() {
     final saved = (await stored()).firstWhere((c) => c.carrierName == 'Ubigi');
     expect(saved.estkSlotNumber, 5);
     expect(saved.mediaType, MediaType.programmable);
+  });
+
+  testWidgets('form blocks saving a negative cycle cost', (tester) async {
+    await pumpHome(tester);
+    final before = (await stored()).length;
+    await tester.tap(find.byKey(const Key('add-card')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(find.byKey(const Key('field-carrier')), 'Neg');
+    await tester.enterText(find.byKey(const Key('field-cost')), '-5');
+    await tester.tap(find.byKey(const Key('save-card')));
+    await tester.pump();
+    expect(find.textContaining('周期费用不能为负数'), findsOneWidget);
+    expect(find.byKey(const Key('save-card')), findsOneWidget);
+    expect((await stored()).length, before);
+
+    await tester.enterText(find.byKey(const Key('field-cost')), '5');
+    await tester.tap(find.byKey(const Key('save-card')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect((await stored()).firstWhere((c) => c.carrierName == 'Neg').cycleCost,
+        5);
+  });
+
+  test('load quarantines stored cards with negative fees', () async {
+    final good = {
+      'id': 'ok',
+      'carrierName': 'OK',
+      'nextDeadlineDate': '2027-01-01'
+    };
+    final bad = {
+      'id': 'bad',
+      'carrierName': 'Bad',
+      'cycleCost': -8,
+      'nextDeadlineDate': '2027-01-01'
+    };
+    SharedPreferences.setMockInitialValues({
+      SimRepository.storageKey: jsonEncode([good, bad]),
+      SimRepository.seededKey: true,
+    });
+    final repo = SimRepository();
+    final cards = await repo.load();
+    expect(cards.map((c) => c.id), ['ok']);
+    expect(repo.lastLoadErrors.single, contains('第 2 张卡片'));
+    expect(repo.lastLoadErrors.single, contains('不能为负数'));
+    final prefs = await SharedPreferences.getInstance();
+    expect(jsonDecode(prefs.getString(SimRepository.rejectedKey)!), [bad]);
+    expect((await SimRepository().load()).map((c) => c.id), ['ok']);
+  });
+
+  testWidgets('home page reports quarantined cards', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      SimRepository.storageKey: jsonEncode([
+        {'id': 'bad', 'monthlyFee': -1, 'nextDeadlineDate': '2027-01-01'}
+      ]),
+      SimRepository.seededKey: true,
+    });
+    await pumpHome(tester);
+    expect(find.textContaining('已拦截 1 张非法卡片'), findsOneWidget);
   });
 }

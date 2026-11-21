@@ -75,6 +75,9 @@ class _SimFormPageState extends State<SimFormPage> {
     return n == null || !n.isFinite ? '请输入数字' : null;
   }
 
+  String? _validateFee(String? v) =>
+      _validateNumber(v) ?? feeError(double.parse(v!.trim()), '周期费用');
+
   void _submit() {
     if (!_form.currentState!.validate()) return;
     final slotText = _estkSlot.text.trim();
@@ -225,7 +228,9 @@ class _SimFormPageState extends State<SimFormPage> {
                     _dropdown('计费周期', _billing, BillingCycle.values,
                         (b) => b.label, (b) => _billing = b),
                     _field(_cost, '周期费用',
-                        validator: _validateNumber, type: TextInputType.number),
+                        key: const Key('field-cost'),
+                        validator: _validateFee,
+                        type: TextInputType.number),
                   ]),
                   section('保号规则', [
                     _field(_cycleDays, '保号周期 (天)',

@@ -44,10 +44,18 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _repo.load().then((cards) => setState(() {
-          _cards = cards;
-          _loading = false;
-        }));
+    _repo.load().then((cards) {
+      if (!mounted) return;
+      setState(() {
+        _cards = cards;
+        _loading = false;
+      });
+      final errors = _repo.lastLoadErrors;
+      if (errors.isNotEmpty) {
+        _toast('已拦截 ${errors.length} 张非法卡片（${errors.first}），'
+            '原始记录已隔离保存，未写入卡库');
+      }
+    });
     (widget.atlasLoader ?? loadWorldAtlas)().then(
       (c) => mounted ? setState(() => _countries = c) : null,
       onError: (Object e) =>

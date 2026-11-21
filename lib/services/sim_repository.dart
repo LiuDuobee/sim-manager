@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/sim_card.dart';
@@ -10,12 +12,20 @@ class SimRepository {
   static const legacyKey = 'sim_cards';
   static const seededKey = 'simvault_v3_seeded';
 
+  /// Invalid records found by the last [load] (e.g. negative fees) are moved
+  /// here verbatim instead of being silently fixed or dropped.
+  static const rejectedKey = 'simvault_v3_rejected';
+
+  /// Errors for the records quarantined by the last [load].
+  List<String> lastLoadErrors = const [];
+
   Future<List<SimCard>> load() async {
     final prefs = await SharedPreferences.getInstance();
+    lastLoadErrors = const [];
     final raw = prefs.getString(storageKey);
     if (raw != null) {
       try {
-        return SimCard.decodeList(raw);
+        return await _validated(prefs, raw);
       } on Object {
         // Corrupt payload: fall through to legacy / seed data.
       }
@@ -23,7 +33,7 @@ class SimRepository {
     final legacy = prefs.getString(legacyKey);
     if (legacy != null) {
       try {
-        final migrated = SimCard.decodeList(legacy);
+        final migrated = await _validated(prefs, legacy);
         await save(migrated);
         return migrated;
       } on Object {
@@ -35,6 +45,20 @@ class SimRepository {
     await save(seeded);
     await prefs.setBool(seededKey, true);
     return seeded;
+  }
+
+  Future<List<SimCard>> _validated(SharedPreferences prefs, String raw) async {
+    final result = SimCard.decodeListPartial(raw);
+    if (result.rejected.isEmpty) return result.cards;
+    final previous = prefs.getString(rejectedKey);
+    final quarantine = [
+      if (previous != null) ...(jsonDecode(previous) as List),
+      ...result.rejected,
+    ];
+    await prefs.setString(rejectedKey, jsonEncode(quarantine));
+    await save(result.cards);
+    lastLoadErrors = result.errors;
+    return result.cards;
   }
 
   Future<void> save(List<SimCard> cards) async {
