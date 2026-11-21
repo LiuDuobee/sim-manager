@@ -135,57 +135,67 @@ class HudStage extends StatelessWidget {
     });
   }
 
+  /// The globe stage. Zoomed globes paint past their layout box, so the
+  /// whole stage is clipped to its frame and never covers the HUD strip.
   Widget _globeArea(List<GlobeNode> nodes) {
     final atlas = countries;
-    return Stack(children: [
-      Positioned.fill(
-        child: atlas == null
-            ? Center(
-                child: Text(atlasError ?? '正在加载 world-atlas 110m…',
-                    style: const TextStyle(color: Hud.muted)))
-            : AtlasGlobe(
-                key: const Key('atlas-globe'),
-                controller: controller,
-                countries: atlas,
-                nodes: nodes,
-                highlightedCodes: {for (final n in nodes) n.code},
-                selectedCode: selectedCountry,
-                onCountryTap: onGlobeCountryTap,
-              ),
-      ),
-      const Positioned.fill(
-          child: IgnorePointer(child: CustomPaint(painter: _CanopyPainter()))),
-      Positioned(
-        left: 4,
-        top: 0,
-        child: IgnorePointer(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const HudLabel('World Card Atlas · Orthographic 3D'),
-            const SizedBox(height: 6),
-            GlassPanel(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              radius: 6,
-              child: Text(
-                atlas == null
-                    ? 'Natural Earth 110m TopoJSON'
-                    : 'Natural Earth 110m TopoJSON · ${atlas.length} 国 · '
-                        '${atlas.fold<int>(0, (s, c) => s + c.pointCount)} 顶点',
-                style: Hud.mono.copyWith(fontSize: 10, color: Hud.muted),
-              ),
+    return ClipRect(
+        key: const Key('globe-stage'),
+        child: Stack(children: [
+          Positioned.fill(
+            child: atlas == null
+                ? Center(
+                    child: Text(atlasError ?? '正在加载 world-atlas 110m…',
+                        style: const TextStyle(color: Hud.muted)))
+                : AtlasGlobe(
+                    key: const Key('atlas-globe'),
+                    controller: controller,
+                    countries: atlas,
+                    nodes: nodes,
+                    highlightedCodes: {for (final n in nodes) n.code},
+                    selectedCode: selectedCountry,
+                    onCountryTap: onGlobeCountryTap,
+                  ),
+          ),
+          const Positioned.fill(
+              child:
+                  IgnorePointer(child: CustomPaint(painter: _CanopyPainter()))),
+          Positioned(
+            left: 4,
+            top: 0,
+            child: IgnorePointer(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const HudLabel('World Card Atlas · Orthographic 3D'),
+                    const SizedBox(height: 6),
+                    GlassPanel(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      radius: 6,
+                      child: Text(
+                        atlas == null
+                            ? 'Natural Earth 110m TopoJSON'
+                            : 'Natural Earth 110m TopoJSON · ${atlas.length} 国 · '
+                                '${atlas.fold<int>(0, (s, c) => s + c.pointCount)} 顶点',
+                        style:
+                            Hud.mono.copyWith(fontSize: 10, color: Hud.muted),
+                      ),
+                    ),
+                  ]),
             ),
-          ]),
-        ),
-      ),
-      Positioned(
-        right: 4,
-        top: 0,
-        child: _Telemetry(
-            controller: controller, nodes: nodes, cards: filteredCards),
-      ),
-      Positioned(
-          left: 4, bottom: 0, child: _GlobeControls(controller: controller)),
-    ]);
+          ),
+          Positioned(
+            right: 4,
+            top: 0,
+            child: _Telemetry(
+                controller: controller, nodes: nodes, cards: filteredCards),
+          ),
+          Positioned(
+              left: 4,
+              bottom: 0,
+              child: _GlobeControls(controller: controller)),
+        ]));
   }
 }
 
