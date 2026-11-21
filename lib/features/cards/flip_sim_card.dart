@@ -348,9 +348,12 @@ class _Front extends StatelessWidget {
     final days = card.daysRemaining();
     final tier = urgencyTierFor(days);
     final color = context.hud.tierColor(tier);
-    final progress = (days / math.max(card.keepAliveCycleDays, 1))
-        .clamp(0.0, 1.0)
-        .toDouble();
+    final span = card.tracksPlanExpiry
+        ? (card.planDays ?? card.keepAliveCycleDays)
+        : card.keepAliveCycleDays;
+    final progress = card.hasDeadline
+        ? (days / math.max(span, 1)).clamp(0.0, 1.0).toDouble()
+        : 0.0;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: const EdgeInsets.only(right: chamferSize - 6),
