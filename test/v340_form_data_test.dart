@@ -353,6 +353,17 @@ void main() {
       expect(result()!.keepAliveEnabled, isFalse);
     });
 
+    testWidgets('a cleared cycle field does not block a rule-less save',
+        (tester) async {
+      final result = await openForm(tester);
+      await tester.enterText(find.byKey(const Key('field-carrier')), 'EE');
+      await tester.enterText(find.byKey(const Key('field-cycle')), '');
+      await tapKey(tester, 'field-ka-enabled');
+      await tapKey(tester, 'save-card');
+      expect(result()!.keepAliveEnabled, isFalse);
+      expect(result()!.keepAliveCycleDays, 180);
+    });
+
     testWidgets('postpaid rule switched back on is saved', (tester) async {
       final result = await openForm(tester);
       await tester.enterText(find.byKey(const Key('field-carrier')), 'EE');

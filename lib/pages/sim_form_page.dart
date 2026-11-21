@@ -231,7 +231,12 @@ class _SimFormPageState extends State<SimFormPage> {
       currency: _currency.text.trim().toUpperCase(),
       billingCycle: _billing,
       cycleCost: double.parse(_cost.text.trim()),
-      keepAliveCycleDays: int.parse(_cycleDays.text.trim()),
+      // The cycle field is hidden (and unvalidated) while the rule is off.
+      keepAliveCycleDays: _kaEnabled
+          ? int.parse(_cycleDays.text.trim())
+          : int.tryParse(_cycleDays.text.trim()) ??
+              _init?.keepAliveCycleDays ??
+              180,
       keepAliveAction: _action.text.trim(),
       lastKeepAliveDate: _init?.lastKeepAliveDate,
       nextDeadlineDate: _deadline,
