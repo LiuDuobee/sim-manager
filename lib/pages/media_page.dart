@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../features/hud/hud_theme.dart';
 import '../models/medium.dart';
 import '../models/sim_card.dart';
+import '../services/estk_slots.dart';
 
 /// Add, edit and remove the media (eUICC cards, built-in eSIM) that cards
 /// are assigned to. Pops the edited list, or null when nothing was saved.
@@ -32,11 +33,12 @@ class _MediaPageState extends State<MediaPage> {
           initial: m,
           minCapacity: m == null
               ? 1
-              : _on(m).fold<int>(
-                  1,
-                  (v, c) => c.estkSlotNumber != null && c.estkSlotNumber! > v
-                      ? c.estkSlotNumber!
-                      : v)),
+              // Auto-placed profiles count too, so shrinking never pushes
+              // a placed card into overflow.
+              : layoutMediumSlots(m, widget.cards)
+                  .slots
+                  .keys
+                  .fold<int>(1, (v, n) => n > v ? n : v)),
     );
     if (result == null) return;
     setState(() {
