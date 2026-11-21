@@ -70,8 +70,10 @@ class _SimFormPageState extends State<SimFormPage> {
     return null;
   }
 
-  String? _validateNumber(String? v) =>
-      double.tryParse((v ?? '').trim()) == null ? '请输入数字' : null;
+  String? _validateNumber(String? v) {
+    final n = double.tryParse((v ?? '').trim());
+    return n == null || !n.isFinite ? '请输入数字' : null;
+  }
 
   void _submit() {
     if (!_form.currentState!.validate()) return;
