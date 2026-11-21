@@ -92,18 +92,17 @@ const _balanceWords = ['余额', '餘額', 'balance', '残高', 'ยอดคง
 final _clauseBreak = RegExp(r'[，,。;；!！\n]|\.\s');
 
 /// The clause [lead] ends in: "余额120元，充值成功￥" → "充值成功". A number
-/// under a "label:" line ("Balance:\n") belongs to that label's clause.
+/// under a "label:" line ("Balance:\n", blank lines allowed) belongs to that
+/// label's clause.
 String _clauseBefore(String lead) {
+  final trimmed = lead.trimRight();
+  if (lead.substring(trimmed.length).contains('\n') &&
+      RegExp(r'[:：]$').hasMatch(trimmed)) {
+    final prev = _clauseBreak.allMatches(trimmed).lastOrNull;
+    return prev == null ? trimmed : trimmed.substring(prev.end);
+  }
   final cut = _clauseBreak.allMatches(lead).lastOrNull;
-  if (cut == null) return lead;
-  final rest = lead.substring(cut.end);
-  final above = lead.substring(0, cut.start);
-  final labelAbove = rest.trim().isEmpty &&
-      cut.group(0) == '\n' &&
-      RegExp(r'[:：]\s*$').hasMatch(above);
-  if (!labelAbove) return rest;
-  final prev = _clauseBreak.allMatches(above).lastOrNull;
-  return prev == null ? above : above.substring(prev.end);
+  return cut == null ? lead : lead.substring(cut.end);
 }
 
 (double?, String?) _amount(String text) {
