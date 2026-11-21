@@ -14,6 +14,7 @@ import '../features/globe/globe_controller.dart';
 import '../features/globe/topojson.dart';
 import '../features/hud/hud_stage.dart';
 import '../features/cards/brand.dart';
+import '../features/cards/region_flag.dart';
 import '../features/hud/hud_theme.dart';
 import '../features/hud/motion.dart';
 import '../features/settings/theme_mode.dart';
@@ -63,6 +64,8 @@ class _HomePageState extends State<HomePage> {
   String? _country;
   int? _slot;
   String? _tag;
+  PlanType? _planFilter;
+  CardKind? _kindFilter;
   String? _focused;
   bool _maskNumbers = false;
   final _cardKeys = <String, GlobalKey>{};
@@ -128,6 +131,8 @@ class _HomePageState extends State<HomePage> {
       if (_country != null && c.countryCode != _country) return false;
       if (slotCard != null && slotCard.id != c.id) return false;
       if (_tag != null && !c.tags.contains(_tag)) return false;
+      if (_planFilter != null && c.planType != _planFilter) return false;
+      if (_kindFilter != null && c.kind != _kindFilter) return false;
       if (q.isEmpty) return true;
       return [
         c.carrierName,
@@ -824,14 +829,14 @@ class _HomePageState extends State<HomePage> {
 
   Widget _bento() {
     final layout = _layout;
-    final sorted = [..._cards]
-      ..sort((a, b) => a.nextDeadlineDate.compareTo(b.nextDeadlineDate));
+    final sorted = _cards.where((c) => c.hasDeadline).toList()
+      ..sort((a, b) => a.effectiveDeadline.compareTo(b.effectiveDeadline));
     final urgent = sorted.isEmpty ? null : sorted.first;
     final monthly = _cards.fold<double>(0, (s, c) => s + c.monthlyCny);
     final annual = annualCostByCurrency(_cards);
     final annualCny = _cards.fold<double>(0, (s, c) => s + c.annualCny);
     int count(MediaType m) => _cards.where((c) => c.mediaType == m).length;
-    int tier(UrgencyTier t) => _cards.where((c) => c.urgency() == t).length;
+    int tier(UrgencyTier t) => sorted.where((c) => c.urgency() == t).length;
     final regions = {for (final c in _cards) c.countryCode}.length;
     final active = _cards.where((c) => c.isActive).length;
 
@@ -995,10 +1000,39 @@ class _HomePageState extends State<HomePage> {
 
   Widget _searchBar(int shown) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [_searchField(shown), _tagBar()]);
+      children: [_searchField(shown), _typeBar(), _tagBar()]);
 
   List<String> get _allTags =>
       normalizeTags([for (final c in _cards) ...c.tags]);
+
+  /// Plan type (预付/上台) and card kind filters; only kinds in use are shown.
+  Widget _typeBar() {
+    final kinds = {for (final c in _cards) c.kind};
+    final hasPostpaid = _cards.any((c) => c.planType == PlanType.postpaid);
+    if (!hasPostpaid && kinds.length < 2) return const SizedBox.shrink();
+    Widget chip(Key key, String label, bool selected, VoidCallback onTap) =>
+        ChoiceChip(
+          key: key,
+          label: Text(label),
+          selected: selected,
+          onSelected: (_) {
+            Haptics.tick();
+            setState(onTap);
+          },
+        );
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Wrap(spacing: 6, runSpacing: 6, children: [
+        for (final t in PlanType.values)
+          chip(Key('plan-filter-${t.name}'), t.label, _planFilter == t,
+              () => _planFilter = _planFilter == t ? null : t),
+        for (final k in CardKind.values)
+          if (kinds.contains(k))
+            chip(Key('kind-filter-${k.name}'), k.label, _kindFilter == k,
+                () => _kindFilter = _kindFilter == k ? null : k),
+      ]),
+    );
+  }
 
   /// Tag filter pills shared by the card vault and the time river.
   Widget _tagBar({String keyPrefix = 'tag'}) {
@@ -1048,6 +1082,8 @@ class _HomePageState extends State<HomePage> {
               _country != null ||
               _slot != null ||
               _tag != null ||
+              _planFilter != null ||
+              _kindFilter != null ||
               _search.text.isNotEmpty)
             TextButton(
               onPressed: () => setState(() {
@@ -1055,6 +1091,8 @@ class _HomePageState extends State<HomePage> {
                 _country = null;
                 _slot = null;
                 _tag = null;
+                _planFilter = null;
+                _kindFilter = null;
                 _search.clear();
               }),
               child: const Text('重置筛选'),
@@ -1251,6 +1289,8 @@ class _HomePageState extends State<HomePage> {
         _country = null;
         _slot = null;
         _tag = null;
+        _planFilter = null;
+        _kindFilter = null;
         _search.clear();
       }
       _stackOpen = card.id;
@@ -1542,6 +1582,8 @@ class _HomePageState extends State<HomePage> {
                 colors: brandGradient(c) ?? cardGradient(c.countryCode)),
           ),
           child: Row(children: [
+            FlagText(c.countryCode, size: 14),
+            const SizedBox(width: 4),
             Text(c.countryCode,
                 style: Hud.mono.copyWith(
                     fontSize: 12, color: p.muted, fontWeight: FontWeight.w800)),
@@ -1554,11 +1596,24 @@ class _HomePageState extends State<HomePage> {
                       fontSize: 14,
                       fontWeight: FontWeight.w800)),
             ),
-            Text(days < 0 ? '过期 ${-days} 天' : '剩 $days 天',
+            if (c.planType == PlanType.postpaid) ...[
+              KindBadge(PlanType.postpaid.label, color: p.amber),
+              const SizedBox(width: 6),
+            ],
+            if (c.kind != CardKind.voice) ...[
+              KindBadge(c.kindLabel, color: p.sky),
+              const SizedBox(width: 6),
+            ],
+            Text(
+                !c.hasDeadline
+                    ? '无规则'
+                    : days < 0
+                        ? '过期 ${-days} 天'
+                        : '剩 $days 天',
                 style: Hud.mono.copyWith(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
-                    color: p.tierColor(c.urgency()))),
+                    color: c.hasDeadline ? p.tierColor(c.urgency()) : p.muted)),
             const SizedBox(width: 10),
             CountdownRing(card: c, size: 38, palette: p, showTier: false),
           ]),
@@ -1570,10 +1625,11 @@ class _HomePageState extends State<HomePage> {
   /// The one number that matters most: the nearest deadline, with a
   /// computed summary line and a direct check-in.
   Widget _hero() {
-    if (_cards.isEmpty) return const SizedBox.shrink();
+    final tracked = _cards.where((c) => c.hasDeadline).toList();
+    if (tracked.isEmpty) return const SizedBox.shrink();
     final h = context.hud;
-    final soon = ([..._cards]
-          ..sort((a, b) => a.nextDeadlineDate.compareTo(b.nextDeadlineDate)))
+    final soon = (tracked
+          ..sort((a, b) => a.effectiveDeadline.compareTo(b.effectiveDeadline)))
         .first;
     final d = soon.daysRemaining();
     final compact = Hud.isCompact(context);
@@ -1631,8 +1687,10 @@ class _HomePageState extends State<HomePage> {
 /// One computed sentence about upcoming deadlines for the home hero.
 String smartSummary(List<SimCard> cards, {DateTime? now}) {
   if (cards.isEmpty) return '还没有卡片';
+  cards = cards.where((c) => c.hasDeadline).toList();
+  if (cards.isEmpty) return '没有需要保号或即将到期的卡';
   final soon = cards.reduce(
-      (a, b) => b.nextDeadlineDate.isBefore(a.nextDeadlineDate) ? b : a);
+      (a, b) => b.effectiveDeadline.isBefore(a.effectiveDeadline) ? b : a);
   final d = soon.daysRemaining(now: now);
   final left = d < 0 ? '已过期 ${-d} 天' : '剩 $d 天';
   final n = cards.where((c) => c.daysRemaining(now: now) <= 30).length;

@@ -24,6 +24,57 @@ extension MediaTypeLabel on MediaType {
       };
 }
 
+/// Prepaid (预付, default) or postpaid contract (上台).
+enum PlanType { prepaid, postpaid }
+
+extension PlanTypeLabel on PlanType {
+  String get label => switch (this) {
+        PlanType.prepaid => '预付',
+        PlanType.postpaid => '上台',
+      };
+
+  String get wireName => switch (this) {
+        PlanType.prepaid => 'Prepaid',
+        PlanType.postpaid => 'Postpaid',
+      };
+
+  static PlanType parse(String? raw) => switch (raw?.toLowerCase()) {
+        'postpaid' => PlanType.postpaid,
+        _ => PlanType.prepaid,
+      };
+}
+
+/// What the card is used for.
+enum CardKind { voice, data, travel, iot, other }
+
+extension CardKindLabel on CardKind {
+  String get label => switch (this) {
+        CardKind.voice => '号码卡',
+        CardKind.data => '纯流量卡',
+        CardKind.travel => '旅游卡',
+        CardKind.iot => '物联网卡',
+        CardKind.other => '其他',
+      };
+
+  String get wireName => switch (this) {
+        CardKind.voice => 'Voice',
+        CardKind.data => 'Data',
+        CardKind.travel => 'Travel',
+        CardKind.iot => 'IoT',
+        CardKind.other => 'Other',
+      };
+
+  /// Data-only and travel cards carry a plan (volume + validity) and a source.
+  bool get hasDataPlan => this == CardKind.data || this == CardKind.travel;
+
+  static CardKind parse(String? raw) {
+    for (final k in CardKind.values) {
+      if (k.wireName.toLowerCase() == raw?.toLowerCase()) return k;
+    }
+    return CardKind.voice;
+  }
+}
+
 /// Where the card physically lives.
 enum LocationType { device, smartCard, drawer }
 
@@ -332,6 +383,16 @@ class SimCard {
     this.tags = const [],
     this.reminderOffsets = defaultReminderOffsets,
     this.profileName = '',
+    this.planType = PlanType.prepaid,
+    this.keepAliveEnabled = true,
+    this.kind = CardKind.voice,
+    this.customKind = '',
+    this.source = '',
+    this.dataTotalGb,
+    this.dataUnlimited = false,
+    this.planStartDate,
+    this.planDays,
+    this.planEndDate,
   });
 
   final String id;
@@ -384,6 +445,59 @@ class SimCard {
   /// Nickname of the eSTK slot profile this card occupies (e.g. 工作号).
   final String profileName;
 
+  final PlanType planType;
+
+  /// False when the card has no keep-alive rule (postpaid contracts, data
+  /// plans): it then has no keep-alive deadline, radar entry or reminders.
+  final bool keepAliveEnabled;
+  final CardKind kind;
+
+  /// Name for [CardKind.other].
+  final String customKind;
+
+  /// Platform the data / travel plan was bought from (Airalo, 电商平台…).
+  final String source;
+
+  /// Plan volume in GB (null = not recorded); ignored when [dataUnlimited].
+  final double? dataTotalGb;
+  final bool dataUnlimited;
+
+  /// Plan validity: activation date + days, or a fixed end date.
+  final DateTime? planStartDate;
+  final int? planDays;
+  final DateTime? planEndDate;
+
+  String get kindLabel =>
+      kind == CardKind.other && customKind.isNotEmpty ? customKind : kind.label;
+
+  /// When the data / travel plan runs out, if recorded.
+  DateTime? get planExpiry {
+    if (!kind.hasDataPlan) return null;
+    if (planEndDate != null) return planEndDate;
+    if (planStartDate != null && planDays != null) {
+      return addDays(planStartDate!, planDays!);
+    }
+    return null;
+  }
+
+  /// The date the card face counts down to: the keep-alive deadline when a
+  /// rule is set, otherwise a data plan's expiry, otherwise none.
+  DateTime? get trackedDeadline =>
+      keepAliveEnabled ? nextDeadlineDate : planExpiry;
+
+  /// Whether [trackedDeadline] is a plan expiry rather than a keep-alive one.
+  bool get tracksPlanExpiry => !keepAliveEnabled && planExpiry != null;
+
+  int? trackedDays({DateTime? now}) {
+    final d = trackedDeadline;
+    return d == null ? null : remainingDays(d, now: now);
+  }
+
+  UrgencyTier? trackedUrgency({DateTime? now}) {
+    final d = trackedDays(now: now);
+    return d == null ? null : urgencyTierFor(d);
+  }
+
   static const defaultReminderOffsets = [3];
   static const maxReminderOffset = 365;
 
@@ -394,8 +508,14 @@ class SimCard {
       mediaType == MediaType.programmable ||
       locationType == LocationType.smartCard;
 
+  /// [trackedDeadline], or the stored deadline for cards without one.
+  DateTime get effectiveDeadline => trackedDeadline ?? nextDeadlineDate;
+
+  /// Whether the card counts down to anything (radar, hero, time river, ICS).
+  bool get hasDeadline => trackedDeadline != null;
+
   int daysRemaining({DateTime? now}) =>
-      remainingDays(nextDeadlineDate, now: now);
+      remainingDays(effectiveDeadline, now: now);
 
   UrgencyTier urgency({DateTime? now}) =>
       urgencyTierFor(daysRemaining(now: now));
@@ -509,6 +629,16 @@ class SimCard {
     List<String>? tags,
     List<int>? reminderOffsets,
     String? profileName,
+    PlanType? planType,
+    bool? keepAliveEnabled,
+    CardKind? kind,
+    String? customKind,
+    String? source,
+    double? Function()? dataTotalGb,
+    bool? dataUnlimited,
+    DateTime? Function()? planStartDate,
+    int? Function()? planDays,
+    DateTime? Function()? planEndDate,
   }) =>
       SimCard(
         id: id ?? this.id,
@@ -547,6 +677,17 @@ class SimCard {
         tags: tags ?? this.tags,
         reminderOffsets: reminderOffsets ?? this.reminderOffsets,
         profileName: profileName ?? this.profileName,
+        planType: planType ?? this.planType,
+        keepAliveEnabled: keepAliveEnabled ?? this.keepAliveEnabled,
+        kind: kind ?? this.kind,
+        customKind: customKind ?? this.customKind,
+        source: source ?? this.source,
+        dataTotalGb: dataTotalGb != null ? dataTotalGb() : this.dataTotalGb,
+        dataUnlimited: dataUnlimited ?? this.dataUnlimited,
+        planStartDate:
+            planStartDate != null ? planStartDate() : this.planStartDate,
+        planDays: planDays != null ? planDays() : this.planDays,
+        planEndDate: planEndDate != null ? planEndDate() : this.planEndDate,
       );
 
   Map<String, dynamic> toJson({bool redactSecrets = false}) => {
@@ -586,6 +727,16 @@ class SimCard {
         'tags': tags,
         'reminderOffsets': reminderOffsets,
         'profileName': profileName,
+        'planType': planType.wireName,
+        'keepAliveEnabled': keepAliveEnabled,
+        'kind': kind.wireName,
+        'customKind': customKind,
+        'source': source,
+        'dataTotalGb': dataTotalGb,
+        'dataUnlimited': dataUnlimited,
+        'planStartDate': planStartDate == null ? null : _ymd(planStartDate!),
+        'planDays': planDays,
+        'planEndDate': planEndDate == null ? null : _ymd(planEndDate!),
       };
 
   factory SimCard.fromJson(Map<String, dynamic> json) {
@@ -639,6 +790,17 @@ class SimCard {
               CardEvent(at: d, type: CardEventType.checkIn)
           ]
         : [for (final e in rawEvents as List) CardEvent.fromJson(e)];
+    final dataGb = json['dataTotalGb'];
+    if (dataGb != null && (dataGb is! num || !dataGb.isFinite || dataGb < 0)) {
+      throw const FormatException('总流量 dataTotalGb 必须是非负数字');
+    }
+    final planDays = json['planDays'];
+    if (planDays != null &&
+        (planDays is! num ||
+            planDays != planDays.roundToDouble() ||
+            planDays <= 0)) {
+      throw const FormatException('套餐天数 planDays 必须是正整数');
+    }
     return SimCard(
       id: json['id'] as String? ?? '${DateTime.now().microsecondsSinceEpoch}',
       carrierName: json['carrierName'] as String? ??
@@ -681,6 +843,16 @@ class SimCard {
       tags: _parseTags(json['tags']),
       reminderOffsets: _parseOffsets(json['reminderOffsets']),
       profileName: json['profileName'] as String? ?? '',
+      planType: PlanTypeLabel.parse(json['planType'] as String?),
+      keepAliveEnabled: json['keepAliveEnabled'] as bool? ?? true,
+      kind: CardKindLabel.parse(json['kind'] as String?),
+      customKind: json['customKind'] as String? ?? '',
+      source: json['source'] as String? ?? '',
+      dataTotalGb: dataGb?.toDouble(),
+      dataUnlimited: json['dataUnlimited'] as bool? ?? false,
+      planStartDate: _parseDate(json['planStartDate']),
+      planDays: planDays?.toInt(),
+      planEndDate: _parseDate(json['planEndDate']),
     );
   }
 

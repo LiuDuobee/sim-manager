@@ -19,6 +19,7 @@ class RiverEvent {
   bool get isTopUp => card.keepAliveType == KeepAliveType.validity;
 
   String get label => switch (kind) {
+        RiverKind.deadline when card.tracksPlanExpiry => '套餐到期',
         RiverKind.deadline => isTopUp ? '充值截止' : '打卡截止',
         RiverKind.reminder =>
           '${offset == 0 ? '当天' : '提前 $offset 天'}提醒 · ${isTopUp ? '去充值' : '去打卡'}',
@@ -34,14 +35,15 @@ List<RiverEvent> buildTimeRiver(List<SimCard> cards,
   final today = dateOnly(now ?? DateTime.now());
   final out = <RiverEvent>[];
   for (final c in cards) {
-    final deadline = dateOnly(c.nextDeadlineDate);
+    if (!c.hasDeadline) continue;
+    final deadline = dateOnly(c.effectiveDeadline);
     final d = remainingDays(deadline, now: today);
     // A deadline past the window can still have reminders inside it.
     if (d <= days) {
       out.add(RiverEvent(
           c, RiverKind.deadline, d < 0 ? today : deadline, d < 0 ? 0 : d, 0));
     }
-    for (final o in c.reminderOffsets) {
+    for (final o in c.keepAliveEnabled ? c.reminderOffsets : const <int>[]) {
       if (o == 0) continue;
       final at = d - o;
       if (at < 0 || at > days) continue;
