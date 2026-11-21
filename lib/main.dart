@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -15,7 +16,9 @@ Future<void> main() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   final themeMode = ThemeModeController();
   await themeMode.load();
-  runApp(SimVaultApp(themeMode: themeMode, updates: UpdateServices.platform()));
+  runApp(SimVaultApp(
+      themeMode: themeMode,
+      updates: kIsWeb ? null : UpdateServices.platform()));
 }
 
 class SimVaultApp extends StatefulWidget {

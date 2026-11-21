@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -1358,21 +1359,23 @@ class _HomePageState extends State<HomePage> {
                   await p.setBool(privacyPrefsKey, v);
                 },
               ),
-              ListTile(
-                key: const Key('check-update'),
-                leading: const Icon(Icons.system_update_alt),
-                title: const Text('检查更新'),
-                subtitle: FutureBuilder<String>(
-                  future: _version,
-                  builder: (_, v) => Text(
-                      '当前版本 ${v.data?.isNotEmpty == true ? 'v${v.data}' : '—'}'
-                      ' · 启动时每天自动检查一次 GitHub Releases'),
+              // The web build is served, not installed: nothing to update.
+              if (!kIsWeb)
+                ListTile(
+                  key: const Key('check-update'),
+                  leading: const Icon(Icons.system_update_alt),
+                  title: const Text('检查更新'),
+                  subtitle: FutureBuilder<String>(
+                    future: _version,
+                    builder: (_, v) => Text(
+                        '当前版本 ${v.data?.isNotEmpty == true ? 'v${v.data}' : '—'}'
+                        ' · 启动时每天自动检查一次 GitHub Releases'),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _checkUpdateNow();
+                  },
                 ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _checkUpdateNow();
-                },
-              ),
               const SizedBox(height: 12),
             ]),
           ),
