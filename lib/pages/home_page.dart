@@ -192,12 +192,16 @@ class _HomePageState extends State<HomePage> {
   /// Puts back the card as it was before [after]'s check-in, unless it has
   /// changed since.
   Future<void> _undoCheckIn(SimCard before, SimCard after) async {
-    final undone = _cards.any((c) => identical(c, after));
-    if (undone) {
-      await _persist(
-          (cards) => [for (final c in cards) identical(c, after) ? before : c]);
+    if (!_cards.any((c) => identical(c, after))) {
+      if (mounted) _toast('卡片已变更，无法撤销');
+      return;
     }
-    if (mounted) _toast(undone ? '已撤销打卡' : '卡片已变更，无法撤销');
+    // On failure _persist has already shown the save error.
+    if (await _persist((cards) =>
+            [for (final c in cards) identical(c, after) ? before : c]) &&
+        mounted) {
+      _toast('已撤销打卡');
+    }
   }
 
   Future<void> _openForm({SimCard? initial, int? presetSlot}) async {
