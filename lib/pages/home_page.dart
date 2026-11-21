@@ -90,13 +90,17 @@ class _HomePageState extends State<HomePage> {
     }).toList();
   }
 
-  Future<void> _persist(List<SimCard> cards) async {
-    setState(() => _cards = cards);
+  /// Writes [cards] first and only then shows them; false when the write
+  /// failed (the UI and the stored vault both keep the previous cards).
+  Future<bool> _persist(List<SimCard> cards) async {
     try {
       await _repo.save(cards);
     } on Object catch (e) {
       if (mounted) _toast('保存失败，本地数据未改动: $e');
+      return false;
     }
+    if (mounted) setState(() => _cards = cards);
+    return true;
   }
 
   void _toast(String msg) => ScaffoldMessenger.of(context)
@@ -123,7 +127,10 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _checkIn(SimCard card) async {
     final updated = card.checkIn();
-    await _persist([for (final c in _cards) c.id == card.id ? updated : c]);
+    if (!await _persist(
+        [for (final c in _cards) c.id == card.id ? updated : c])) {
+      return;
+    }
     _toast('${card.carrierName} 保号打卡成功，死线顺延 ${card.keepAliveCycleDays} 天');
   }
 
@@ -134,9 +141,11 @@ class _HomePageState extends State<HomePage> {
     ));
     if (result == null) return;
     final exists = _cards.any((c) => c.id == result.id);
-    await _persist(exists
+    if (!await _persist(exists
         ? [for (final c in _cards) c.id == result.id ? result : c]
-        : [..._cards, result]);
+        : [..._cards, result])) {
+      return;
+    }
     _toast(exists ? '已保存 ${result.carrierName}' : '已新增 ${result.carrierName}');
   }
 
@@ -158,7 +167,7 @@ class _HomePageState extends State<HomePage> {
       ),
     );
     if (ok != true) return;
-    await _persist(_cards.where((c) => c.id != card.id).toList());
+    if (!await _persist(_cards.where((c) => c.id != card.id).toList())) return;
     if (_slot != null && !_layout.slots.containsKey(_slot)) {
       setState(() => _slot = null);
     }
@@ -263,11 +272,12 @@ class _HomePageState extends State<HomePage> {
                 builder: (_) => BackupPage(
                   cards: _cards,
                   onImport: (cards) async {
-                    await _persist(cards);
+                    if (!await _persist(cards)) return false;
                     setState(() {
                       _country = null;
                       _slot = null;
                     });
+                    return true;
                   },
                 ),
               )),

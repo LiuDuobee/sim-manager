@@ -188,6 +188,32 @@ void main() {
     expect(prefs.getString(SimRepository.rejectedKey), 'not json');
   });
 
+  testWidgets('failed save keeps UI and vault unchanged, no false success',
+      (tester) async {
+    final stored = jsonEncode([
+      {'id': 'ok', 'nextDeadlineDate': '2027-01-01'},
+      {'id': 'bad', 'cycleCost': -8, 'nextDeadlineDate': '2027-01-01'},
+    ]);
+    SharedPreferences.setMockInitialValues({
+      SimRepository.storageKey: stored,
+      SimRepository.rejectedKey: 'not json',
+      SimRepository.seededKey: true,
+    });
+    await pumpHome(tester);
+    await tester.pump(const Duration(seconds: 5));
+    final before = find.textContaining('剩').evaluate().length;
+    expect(find.byKey(const Key('checkin-ok')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('checkin-ok')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.textContaining('保存失败'), findsOneWidget);
+    expect(find.textContaining('保号打卡成功'), findsNothing);
+    expect(find.textContaining('剩').evaluate().length, before);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(SimRepository.storageKey), stored);
+  });
+
   testWidgets('home page reports quarantined cards', (tester) async {
     SharedPreferences.setMockInitialValues({
       SimRepository.storageKey: jsonEncode([
