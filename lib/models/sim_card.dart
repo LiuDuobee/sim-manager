@@ -311,8 +311,13 @@ class SimCard {
       final tag = '卡片有效期 ${_ymd(legacyExpiry)}';
       if (!notes.contains(tag)) notes = notes.isEmpty ? tag : '$notes\n$tag';
     }
-    final cycleCost = (json['cycleCost'] as num?)?.toDouble() ?? 0;
-    final monthlyFee = (json['monthlyFee'] as num?)?.toDouble() ?? 0;
+    final savedCost = (json['cycleCost'] as num?)?.toDouble();
+    final monthlyFee = (json['monthlyFee'] as num?)?.toDouble();
+    // v1 editors saved cycleCost 0 by default next to the real monthlyFee.
+    final cycleCost =
+        (savedCost == null || savedCost == 0) && monthlyFee != null
+            ? monthlyFee
+            : savedCost ?? 0;
     return SimCard(
       id: json['id'] as String? ?? '${DateTime.now().microsecondsSinceEpoch}',
       carrierName: json['carrierName'] as String? ??
@@ -332,7 +337,7 @@ class SimCard {
       balance: (json['balance'] as num?)?.toDouble() ?? 0,
       currency: json['currency'] as String? ?? 'CNY',
       billingCycle: BillingCycleLabel.parse(json['billingCycle'] as String?),
-      cycleCost: cycleCost > 0 ? cycleCost : monthlyFee,
+      cycleCost: cycleCost,
       keepAliveCycleDays: (json['keepAliveCycleDays'] as num?)?.toInt() ?? 180,
       keepAliveAction: json['keepAliveAction'] as String? ?? '',
       lastKeepAliveDate: _parseDate(json['lastKeepAliveDate']),
