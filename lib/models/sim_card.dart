@@ -390,7 +390,8 @@ class SimCard {
     return switch (billingCycle) {
       BillingCycle.monthly => cycleCost * rate,
       BillingCycle.yearly => cycleCost * rate / 12,
-      BillingCycle.payGo => cycleCost > 0 ? cycleCost * rate / 6 : 0,
+      // One payment per keep-alive cycle, spread over the months it covers.
+      BillingCycle.payGo => annualCost * rate / 12,
     };
   }
 
