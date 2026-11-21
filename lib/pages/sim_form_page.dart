@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../features/hud/hud_theme.dart';
 import '../features/hud/motion.dart';
 import '../models/sim_card.dart';
+import '../features/cards/iccid_scanner.dart';
 import '../services/carrier_presets.dart';
 
 class SimFormPage extends StatefulWidget {
@@ -48,6 +49,14 @@ class _SimFormPageState extends State<SimFormPage> {
       TextEditingController(text: _init?.boundServices.join(', '));
   late final _notes = TextEditingController(text: _init?.notes);
   late final _rechargeUrl = TextEditingController(text: _init?.rechargeUrl);
+  late final _profileName = TextEditingController(text: _init?.profileName);
+  final _newTag = TextEditingController();
+  late List<String> _tags = [...?_init?.tags];
+  late Set<int> _offsets =
+      (_init?.reminderOffsets ?? SimCard.defaultReminderOffsets).toSet();
+
+  static const tagPresets = ['主力', '备用', '收藏'];
+  static const offsetPresets = [30, 14, 7, 3, 1, 0];
   late String _presetId = _init?.carrierPresetId ?? '';
   late KeepAliveType _kaType = _init?.keepAliveType ?? KeepAliveType.activity;
   late RenewalBasis _renewal = _init?.renewalBasis ?? RenewalBasis.fromAction;
@@ -176,6 +185,9 @@ class _SimFormPageState extends State<SimFormPage> {
       rechargeUrl: _rechargeUrl.text.trim(),
       events: _init?.events ?? const [],
       archivedAt: _init?.archivedAt,
+      tags: normalizeTags(_tags),
+      reminderOffsets: normalizeOffsets(_offsets),
+      profileName: _slotEnabled ? _profileName.text.trim() : '',
     );
     Navigator.pop(context, card);
   }
@@ -197,6 +209,7 @@ class _SimFormPageState extends State<SimFormPage> {
           {Key? key,
           String? Function(String?)? validator,
           TextInputType? type,
+          Widget? suffix,
           bool enabled = true}) =>
       SizedBox(
         width: _w,
@@ -207,8 +220,68 @@ class _SimFormPageState extends State<SimFormPage> {
           keyboardType: type,
           validator: validator,
           decoration: InputDecoration(
-              labelText: label, border: const OutlineInputBorder()),
+              labelText: label,
+              suffixIcon: suffix,
+              border: const OutlineInputBorder()),
         ),
+      );
+
+  Future<void> _scanIccid() async {
+    final iccid = await scanIccid(context);
+    if (iccid != null && mounted) setState(() => _iccid.text = iccid);
+  }
+
+  Widget _tagsEditor() {
+    final all = normalizeTags([...tagPresets, ..._tags]);
+    return SizedBox(
+      width: _wide,
+      child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final t in all)
+              FilterChip(
+                key: Key('form-tag-$t'),
+                label: Text('#$t'),
+                selected: _tags.contains(t),
+                onSelected: (on) => setState(
+                    () => on ? _tags = [..._tags, t] : _tags.remove(t)),
+              ),
+            SizedBox(
+              width: 160,
+              child: TextField(
+                key: const Key('form-tag-new'),
+                controller: _newTag,
+                decoration: const InputDecoration(
+                    hintText: '自定义标签，回车添加', isDense: true),
+                onSubmitted: (v) => setState(() {
+                  _tags = normalizeTags([..._tags, v]);
+                  _newTag.clear();
+                }),
+              ),
+            ),
+          ]),
+    );
+  }
+
+  Widget _offsetsEditor() => SizedBox(
+        width: _wide,
+        child: Wrap(spacing: 6, runSpacing: 6, children: [
+          for (final o in offsetPresets)
+            FilterChip(
+              key: Key('form-offset-$o'),
+              label: Text(o == 0 ? '当天' : '提前 $o 天'),
+              selected: _offsets.contains(o),
+              onSelected: (on) => setState(() {
+                if (on) {
+                  _offsets = {..._offsets, o};
+                } else if (_offsets.length > 1) {
+                  _offsets = {..._offsets}..remove(o);
+                }
+              }),
+            ),
+        ]),
       );
 
   Widget _dropdown<T>(String label, T value, List<T> values,
@@ -300,6 +373,9 @@ class _SimFormPageState extends State<SimFormPage> {
                           enabled: _slotEnabled,
                           type: TextInputType.number,
                           validator: _validateSlot),
+                      _field(_profileName, 'Profile 昵称 (如 工作号)',
+                          key: const Key('field-profile-name'),
+                          enabled: _slotEnabled),
                     ]),
                     section('资费', [
                       _field(_plan, '套餐名称'),
@@ -376,8 +452,18 @@ class _SimFormPageState extends State<SimFormPage> {
                         ),
                       ),
                     ]),
+                    section('提醒与标签', [
+                      _offsetsEditor(),
+                      _tagsEditor(),
+                    ]),
                     section('卡背机密', [
-                      _field(_iccid, 'ICCID', key: const Key('field-iccid')),
+                      _field(_iccid, 'ICCID',
+                          key: const Key('field-iccid'),
+                          suffix: IconButton(
+                              key: const Key('scan-iccid'),
+                              tooltip: '扫描卡托条码',
+                              onPressed: _scanIccid,
+                              icon: const Icon(Icons.qr_code_scanner))),
                       _field(_pin, 'PIN1'),
                       _field(_puk, 'PUK1'),
                       _field(_lpa, 'eSIM LPA 激活串'),
