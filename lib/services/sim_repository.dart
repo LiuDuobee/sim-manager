@@ -16,6 +16,13 @@ class SimRepository {
   /// here verbatim instead of being silently fixed or dropped.
   static const rejectedKey = 'simvault_v3_rejected';
 
+  /// Archived cards (归档区), same encoding as the vault.
+  static const archiveKey = 'simvault_v3_archive';
+
+  /// True when the stored archive could not be read; [saveArchive] then
+  /// refuses to overwrite it.
+  bool _archiveUnreadable = false;
+
   /// Errors for the records quarantined by the last [load].
   List<String> lastLoadErrors = const [];
 
@@ -87,6 +94,34 @@ class SimRepository {
         rejectedKey, jsonEncode([...existing, ..._pendingQuarantine]));
     if (!ok) throw StateError('隔离区写入失败');
     _pendingQuarantine = const [];
+  }
+
+  /// Call after [load]: invalid archived records join the same quarantine.
+  Future<List<SimCard>> loadArchive() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(archiveKey);
+    if (raw == null) return [];
+    final result = _decode(raw);
+    if (result == null) {
+      _archiveUnreadable = true;
+      lastLoadErrors = [...lastLoadErrors, '归档区数据损坏，已保留原始数据'];
+      return [];
+    }
+    if (result.rejected.isNotEmpty) {
+      lastLoadErrors = [...lastLoadErrors, ...result.errors];
+      _pendingQuarantine = [..._pendingQuarantine, ...result.rejected];
+    }
+    return result.cards;
+  }
+
+  Future<void> saveArchive(List<SimCard> cards) async {
+    if (_archiveUnreadable) {
+      throw StateError('归档区数据损坏，拒绝覆盖');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await _flushQuarantine(prefs);
+    final ok = await prefs.setString(archiveKey, SimCard.encodeList(cards));
+    if (!ok) throw StateError('归档区写入失败');
   }
 
   Future<void> save(List<SimCard> cards) async {

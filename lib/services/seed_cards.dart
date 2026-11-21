@@ -10,6 +10,9 @@ List<SimCard> buildSeedCards(DateTime now) {
   return [
     card(SimCard(
       id: 'sim-us-tmobile',
+      keepAliveType: KeepAliveType.validity,
+      carrierPresetId: 'tmobile-paygo',
+      rechargeUrl: 'https://www.t-mobile.com/',
       phoneNumber: '+1 (212) 555-0198',
       carrierName: 'T-Mobile PayGo',
       countryCode: 'US',
@@ -34,6 +37,9 @@ List<SimCard> buildSeedCards(DateTime now) {
     )),
     card(SimCard(
       id: 'sim-cn-cmcc',
+      keepAliveType: KeepAliveType.validity,
+      carrierPresetId: 'cmcc',
+      rechargeUrl: 'https://www.10086.cn/',
       phoneNumber: '+86 138 0517 8842',
       carrierName: '中国移动 CMCC',
       countryCode: 'CN',
@@ -53,6 +59,8 @@ List<SimCard> buildSeedCards(DateTime now) {
     )),
     card(SimCard(
       id: 'sim-gb-giffgaff',
+      carrierPresetId: 'giffgaff',
+      rechargeUrl: 'https://www.giffgaff.com/top-up',
       phoneNumber: '+44 7456 892011',
       carrierName: 'giffgaff UK',
       countryCode: 'GB',
@@ -73,6 +81,10 @@ List<SimCard> buildSeedCards(DateTime now) {
     )),
     card(SimCard(
       id: 'sim-hk-clubsim',
+      keepAliveType: KeepAliveType.validity,
+      renewalBasis: RenewalBasis.fromDeadline,
+      carrierPresetId: 'club-sim',
+      rechargeUrl: 'https://www.hkcsl.com/',
       phoneNumber: '+852 6892 3310',
       carrierName: 'Club SIM (CSL)',
       countryCode: 'HK',

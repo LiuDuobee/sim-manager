@@ -417,7 +417,7 @@ class _Back extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final last = card.lastKeepAliveDate;
-    Widget kv(String k, String v) => Padding(
+    Widget kv(String k, String v, {int maxLines = 2}) => Padding(
           padding: const EdgeInsets.only(bottom: 4),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SizedBox(
@@ -427,7 +427,7 @@ class _Back extends StatelessWidget {
                         .copyWith(fontSize: 10, color: context.hud.dim))),
             Expanded(
                 child: Text(v,
-                    maxLines: 2,
+                    maxLines: maxLines,
                     overflow: TextOverflow.ellipsis,
                     style: Hud.mono.copyWith(
                         fontSize: 11.5, fontWeight: FontWeight.w600))),
@@ -437,8 +437,11 @@ class _Back extends StatelessWidget {
       Padding(
         padding: const EdgeInsets.only(right: chamferSize - 6),
         child: Row(children: [
-          const HudLabel('Security Vault · 卡背'),
-          const Spacer(),
+          const Expanded(child: HudLabel('Security Vault · 卡背')),
+          _smallButton(
+              '护照 ${card.events.length}', () => showPassport(context, card),
+              key: Key('passport-${card.id}'), color: context.hud.amber),
+          const SizedBox(width: 6),
           _smallButton(secretsVisible ? '隐藏机密' : '解密查看', onToggleSecrets,
               key: Key('secrets-${card.id}')),
         ]),
@@ -448,15 +451,19 @@ class _Back extends StatelessWidget {
       kv('PIN/PUK', '${_mask(card.pin1)} / ${_mask(card.puk1)}'),
       if (card.esimLpaCode.isNotEmpty) kv('LPA', _mask(card.esimLpaCode)),
       const SizedBox(height: 4),
-      HudLabel('保号规则', color: context.hud.amber),
+      HudLabel('保号规则 · 续费护照', color: context.hud.amber),
       const SizedBox(height: 4),
-      kv('周期',
-          '每 ${card.keepAliveCycleDays} 天 · ${card.keepAliveAction.isEmpty ? '未设置动作' : card.keepAliveAction}'),
+      kv('规则',
+          '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天 · 年 ${card.currency} ${card.annualCost.toStringAsFixed(card.annualCost % 1 == 0 ? 0 : 2)}',
+          maxLines: 1),
       kv(
-          '上次',
-          last == null
-              ? '尚未打卡'
-              : '${DateFormat('yyyy-MM-dd').format(last)} · 共 ${card.keepAliveLog.length} 次记录'),
+          '护照',
+          card.events.isEmpty
+              ? (last == null
+                  ? '尚未打卡'
+                  : '上次 ${DateFormat('yyyy-MM-dd').format(last)}')
+              : '${passportLine(card.events.first)} · 共 ${card.events.length} 条',
+          maxLines: 1),
       const Spacer(),
       Wrap(spacing: 6, runSpacing: Hud.isCompact(context) ? 0 : 6, children: [
         _smallButton('保号打卡', onCheckIn,
@@ -464,10 +471,80 @@ class _Back extends StatelessWidget {
         _smallButton('导出 .ics', onExportIcs,
             key: Key('ics-${card.id}'), color: context.hud.sky),
         _smallButton('编辑', onEdit, key: Key('edit-${card.id}')),
-        _smallButton('删除', onDelete,
+        _smallButton('归档', onDelete,
             key: Key('delete-${card.id}'), color: context.hud.rose),
         _smallButton('返回正面 ↺', onFlip, key: Key('unflip-${card.id}')),
       ]),
     ]);
   }
+}
+
+String _amount(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
+
+/// One-line passport entry: `12-03 充值续期 USD 3 → 2027-01-02`.
+String passportLine(CardEvent e) => [
+      DateFormat('MM-dd').format(e.at),
+      e.type.label,
+      if (e.amount != null) '${e.currency} ${_amount(e.amount!)}',
+      if (e.deadline != null)
+        '→ ${DateFormat('yyyy-MM-dd').format(e.deadline!)}',
+      if (e.note.isNotEmpty) e.note,
+    ].join(' ');
+
+/// The full renewal passport of [card]: rules, yearly cost, top-up link and
+/// every recorded event, newest first.
+Future<void> showPassport(BuildContext context, SimCard card) {
+  // The card face forces the dark palette; the dialog follows the app theme.
+  final appTheme = Theme.of(Navigator.of(context).context);
+  return showDialog(
+      context: context,
+      builder: (_) => Theme(
+          data: appTheme,
+          child: Builder(builder: (ctx) {
+            final h = ctx.hud;
+            return AlertDialog(
+              key: const Key('passport-dialog'),
+              title: Text('续费护照 · ${card.carrierName}'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                          '${card.keepAliveType.label} · ${card.renewalBasis.label} · 每 ${card.keepAliveCycleDays} 天',
+                          style: TextStyle(
+                              color: h.amber, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      Text(
+                          '预估年成本 ${card.currency} ${_amount(card.annualCost)} ≈ ¥${card.annualCny.toStringAsFixed(0)}',
+                          key: const Key('passport-annual'),
+                          style: Hud.mono
+                              .copyWith(fontSize: 12, color: h.emerald)),
+                      if (card.rechargeUrl.isNotEmpty)
+                        SelectableText('充值 ${card.rechargeUrl}',
+                            style:
+                                Hud.mono.copyWith(fontSize: 11, color: h.sky)),
+                      const SizedBox(height: 10),
+                      Flexible(
+                        child: card.events.isEmpty
+                            ? Text('暂无记录', style: TextStyle(color: h.dim))
+                            : ListView(shrinkWrap: true, children: [
+                                for (final e in card.events)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: Text(passportLine(e),
+                                        style: Hud.mono.copyWith(fontSize: 12)),
+                                  ),
+                              ]),
+                      ),
+                    ]),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('关闭')),
+              ],
+            );
+          })));
 }
