@@ -70,7 +70,7 @@ class _HomePageState extends State<HomePage> {
     return _cards.where((c) {
       if (_mediaFilter != null && c.mediaType != _mediaFilter) return false;
       if (_country != null && c.countryCode != _country) return false;
-      if (_slot != null && slotCard?.id != c.id) return false;
+      if (slotCard != null && slotCard.id != c.id) return false;
       if (q.isEmpty) return true;
       return [
         c.carrierName,
