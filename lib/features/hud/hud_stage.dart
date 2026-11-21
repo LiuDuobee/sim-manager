@@ -23,10 +23,11 @@ List<GlobeNode> buildGlobeNodes(List<SimCard> cards, List<GeoCountry> countries,
     final pos = focusFor(code, countries);
     if (pos == null) return;
     final soonest = group.reduce(
-        (a, b) => a.nextDeadlineDate.isAfter(b.nextDeadlineDate) ? b : a);
+        (a, b) => a.effectiveDeadline.isAfter(b.effectiveDeadline) ? b : a);
     final worst = group
+        .where((c) => c.hasDeadline)
         .map((c) => c.urgency())
-        .reduce((a, b) => a.index < b.index ? a : b);
+        .fold(UrgencyTier.ok, (a, b) => a.index < b.index ? a : b);
     nodes.add(GlobeNode(
       code: code,
       lon: pos.$1,
@@ -387,8 +388,8 @@ class _Telemetry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sorted = [...cards]
-      ..sort((a, b) => a.nextDeadlineDate.compareTo(b.nextDeadlineDate));
+    final sorted = cards.where((c) => c.hasDeadline).toList()
+      ..sort((a, b) => a.effectiveDeadline.compareTo(b.effectiveDeadline));
     final nearest = sorted.isEmpty ? null : sorted.first;
     return ListenableBuilder(
       listenable: controller,
@@ -602,10 +603,10 @@ class _RadarDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sorted = [...cards]
-      ..sort((a, b) => a.nextDeadlineDate.compareTo(b.nextDeadlineDate));
-    final p1 = cards.where((c) => c.urgency() == UrgencyTier.p1).length;
-    final p2 = cards.where((c) => c.urgency() == UrgencyTier.p2).length;
+    final sorted = cards.where((c) => c.hasDeadline).toList()
+      ..sort((a, b) => a.effectiveDeadline.compareTo(b.effectiveDeadline));
+    final p1 = sorted.where((c) => c.urgency() == UrgencyTier.p1).length;
+    final p2 = sorted.where((c) => c.urgency() == UrgencyTier.p2).length;
     final monthly = cards.fold<double>(0, (s, c) => s + c.monthlyCny);
     Widget radarItem(SimCard c) {
       final tier = c.urgency();
@@ -632,7 +633,7 @@ class _RadarDrawer extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                       fontSize: 13, fontWeight: FontWeight.w700)),
-              Text('${c.keepAliveType.verb} · ${c.hostName} · ${c.slotDetail}',
+              Text('${c.actionVerb} · ${c.hostName} · ${c.slotDetail}',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 11, color: context.hud.dim)),
             ]),

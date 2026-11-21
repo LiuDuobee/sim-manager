@@ -83,11 +83,33 @@ class CountdownRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = palette ?? context.hud;
+    if (!card.hasDeadline) {
+      return Semantics(
+        label: '${card.carrierName} 无保号规则',
+        child: SizedBox.square(
+          dimension: size,
+          child: CustomPaint(
+            painter: _RingPainter(
+                progress: 0,
+                color: p.muted,
+                track: brandColor(card, p).withValues(alpha: .28),
+                stroke: size * .1),
+            child: Center(
+                child: Text('—',
+                    style: Hud.mono.copyWith(
+                        fontSize: size * .3,
+                        fontWeight: FontWeight.w900,
+                        color: p.muted))),
+          ),
+        ),
+      );
+    }
     final days = card.daysRemaining();
     final tier = urgencyTierFor(days);
-    final progress = (days / math.max(card.keepAliveCycleDays, 1))
-        .clamp(0.0, 1.0)
-        .toDouble();
+    final span = card.tracksPlanExpiry
+        ? (card.planDays ?? card.keepAliveCycleDays)
+        : card.keepAliveCycleDays;
+    final progress = (days / math.max(span, 1)).clamp(0.0, 1.0).toDouble();
     final color = p.tierColor(tier);
     return Semantics(
       label: '${card.carrierName} 剩余 $days 天，${tier.label}',

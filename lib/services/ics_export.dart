@@ -50,6 +50,7 @@ String buildIcsCalendar(List<SimCard> cards,
     'X-WR-CALNAME:SIMVault 保号提醒',
   ];
   for (final card in cards) {
+    if (!card.keepAliveEnabled) continue;
     final start = dateOnly(card.nextDeadlineDate);
     final end = addDays(start, 1);
     final number = maskNumbers ? maskPhone(card.phoneNumber) : card.phoneNumber;

@@ -8,6 +8,7 @@ import '../../models/sim_card.dart';
 import '../hud/hud_theme.dart';
 import '../hud/motion.dart';
 import 'brand.dart';
+import 'region_flag.dart';
 import 'show_number_page.dart';
 
 const chamferSize = 28.0;
@@ -347,14 +348,20 @@ class _Front extends StatelessWidget {
     final days = card.daysRemaining();
     final tier = urgencyTierFor(days);
     final color = context.hud.tierColor(tier);
-    final progress = (days / math.max(card.keepAliveCycleDays, 1))
-        .clamp(0.0, 1.0)
-        .toDouble();
+    final span = card.tracksPlanExpiry
+        ? (card.planDays ?? card.keepAliveCycleDays)
+        : card.keepAliveCycleDays;
+    final progress = card.hasDeadline
+        ? (days / math.max(span, 1)).clamp(0.0, 1.0).toDouble()
+        : 0.0;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: const EdgeInsets.only(right: chamferSize - 6),
         child: LayoutBuilder(
             builder: (context, box) => Row(children: [
+                  FlagText(card.countryCode,
+                      key: Key('flag-${card.id}'), size: 15),
+                  const SizedBox(width: 4),
                   Text(card.countryCode,
                       style: Hud.mono.copyWith(
                           fontSize: 12,
@@ -384,10 +391,30 @@ class _Front extends StatelessWidget {
                   ),
                 ])),
       ),
-      Text(card.planName,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 11, color: context.hud.muted)),
-      const SizedBox(height: 14),
+      Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 4),
+        child: RegionStripe(
+            code: card.countryCode,
+            background: const Color(0xFF0F172A),
+            width: 96),
+      ),
+      Row(children: [
+        Flexible(
+          child: Text(card.planName,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: context.hud.muted)),
+        ),
+        if (card.planType == PlanType.postpaid) ...[
+          const SizedBox(width: 6),
+          KindBadge(PlanType.postpaid.label,
+              key: Key('postpaid-${card.id}'), color: context.hud.amber),
+        ],
+        if (card.kind != CardKind.voice) ...[
+          const SizedBox(width: 6),
+          KindBadge(card.kindLabel, key: Key('kind-${card.id}')),
+        ],
+      ]),
+      const SizedBox(height: 8),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SimChip(),
         const SizedBox(width: 10),
@@ -418,7 +445,10 @@ class _Front extends StatelessWidget {
       ]),
       const SizedBox(height: 12),
       Wrap(spacing: 6, runSpacing: 4, children: [
-        _Tag('${card.hostName} · ${card.slotDetail}'),
+        if (card.hostName.isNotEmpty || card.slotDetail.isNotEmpty)
+          _Tag([card.hostName, card.slotDetail]
+              .where((s) => s.isNotEmpty)
+              .join(' · ')),
         if (card.estkSlotNumber != null)
           _Tag(
               'eSTK #${card.estkSlotNumber}'
@@ -430,13 +460,22 @@ class _Front extends StatelessWidget {
       Row(children: [
         Expanded(
           child: Text(
-              '到期 ${DateFormat('yyyy-MM-dd').format(card.nextDeadlineDate)}',
+              card.hasDeadline
+                  ? '${card.tracksPlanExpiry ? '套餐到期' : '到期'} ${DateFormat('yyyy-MM-dd').format(card.effectiveDeadline)}'
+                  : card.planType == PlanType.postpaid
+                      ? '上台合约 · 无保号规则'
+                      : '无保号规则',
               style: Hud.mono.copyWith(fontSize: 11, color: context.hud.muted)),
         ),
-        Text('${tier.code} · ${days < 0 ? '已过期 ${-days}' : '剩 $days'} 天',
+        Text(
+            card.hasDeadline
+                ? '${tier.code} · ${days < 0 ? '已过期 ${-days}' : '剩 $days'} 天'
+                : '—',
             key: Key('days-${card.id}'),
             style: Hud.mono.copyWith(
-                fontSize: 11.5, fontWeight: FontWeight.w800, color: color)),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                color: card.hasDeadline ? color : context.hud.muted)),
       ]),
       const SizedBox(height: 5),
       ClipRRect(

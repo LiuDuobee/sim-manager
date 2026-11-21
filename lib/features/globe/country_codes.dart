@@ -180,6 +180,7 @@ const countryNamesZh = <String, String>{
   'CN': '中国',
   'HK': '中国香港',
   'TW': '中国台湾',
+  'MO': '中国澳门',
   'JP': '日本',
   'KR': '韩国',
   'US': '美国',
