@@ -110,17 +110,20 @@ class _HomePageState extends State<HomePage> {
   Future<bool> _persist(List<SimCard> Function(List<SimCard>) change) =>
       _persistBoth((cards, archive) => (change(cards), archive));
 
-  /// Vault + archive variant of [_persist]. The archive is written first, so
-  /// an interrupted move leaves the card in both lists (load keeps the vault
+  /// Vault + archive variant of [_persist]. The list gaining the card is
+  /// written first ([vaultFirst] when it moves into the vault), so an
+  /// interrupted move leaves the card in both lists (load keeps the vault
   /// copy) rather than in neither.
   Future<bool> _persistBoth(
       (List<SimCard>, List<SimCard>) Function(List<SimCard>, List<SimCard>)
-          change) {
+          change,
+      {bool vaultFirst = false}) {
     final result = _writes.then((_) async {
       final (cards, archive) = change(_cards, _archive);
       try {
+        if (vaultFirst && !identical(cards, _cards)) await _repo.save(cards);
         if (!identical(archive, _archive)) await _repo.saveArchive(archive);
-        if (!identical(cards, _cards)) await _repo.save(cards);
+        if (!vaultFirst && !identical(cards, _cards)) await _repo.save(cards);
       } on Object catch (e) {
         if (mounted) _toast('保存失败，本地数据未改动: $e');
         return false;
@@ -292,7 +295,7 @@ class _HomePageState extends State<HomePage> {
         [...cards, restored],
         archive.where((c) => c.id != card.id).toList()
       );
-    })) {
+    }, vaultFirst: true)) {
       return;
     }
     _toast(slotCleared
