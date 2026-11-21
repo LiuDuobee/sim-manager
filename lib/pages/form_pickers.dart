@@ -6,10 +6,9 @@ import '../services/region_catalog.dart';
 
 Future<T?> _sheet<T>(
         BuildContext context, Widget Function(BuildContext) body) =>
-    showModalBottomSheet<T>(
-      context: context,
+    showGlassBottomSheet<T>(
+      context,
       isScrollControlled: true,
-      showDragHandle: true,
       builder: (context) => SizedBox(
           height: MediaQuery.sizeOf(context).height * .78,
           child: body(context)),

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/medium.dart';
 import '../models/sim_card.dart';
 import 'seed_cards.dart';
 
@@ -18,6 +19,10 @@ class SimRepository {
 
   /// Archived cards (归档区), same encoding as the vault.
   static const archiveKey = 'simvault_v3_archive';
+
+  /// Slot-bearing media (eUICC cards, built-in eSIM). Missing → the legacy
+  /// 15-slot eSTK medium, so pre-v3.4 data keeps its matrix unchanged.
+  static const mediaKey = 'simvault_v3_media';
 
   /// True when the stored archive could not be read; [saveArchive] then
   /// refuses to overwrite it.
@@ -128,5 +133,22 @@ class SimRepository {
     final prefs = await SharedPreferences.getInstance();
     await _flushQuarantine(prefs);
     await prefs.setString(storageKey, SimCard.encodeList(cards));
+  }
+
+  Future<List<Medium>> loadMedia() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(mediaKey);
+    if (raw == null) return [legacyEstkMedium];
+    try {
+      return Medium.decodeList(jsonDecode(raw));
+    } on FormatException {
+      return [legacyEstkMedium];
+    }
+  }
+
+  Future<void> saveMedia(List<Medium> media) async {
+    final prefs = await SharedPreferences.getInstance();
+    final ok = await prefs.setString(mediaKey, Medium.encodeList(media));
+    if (!ok) throw StateError('载体列表写入失败');
   }
 }

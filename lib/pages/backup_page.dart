@@ -1,17 +1,29 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../features/hud/hud_theme.dart';
+import '../models/medium.dart';
 import '../models/sim_card.dart';
 import '../services/file_export.dart';
 
 class BackupPage extends StatefulWidget {
-  const BackupPage({super.key, required this.cards, required this.onImport});
+  const BackupPage(
+      {super.key,
+      required this.cards,
+      required this.onImport,
+      this.media = const []});
 
   final List<SimCard> cards;
 
   /// Returns false when the import could not be saved.
-  final Future<bool> Function(List<SimCard>) onImport;
+  /// The second argument is the backup's medium list, or null for a
+  /// pre-v3.4 backup that has none.
+  final Future<bool> Function(List<SimCard>, List<Medium>?) onImport;
+
+  /// Exported next to the cards as `{"cards": [...], "media": [...]}`.
+  final List<Medium> media;
 
   @override
   State<BackupPage> createState() => _BackupPageState();
@@ -21,15 +33,27 @@ class _BackupPageState extends State<BackupPage> {
   bool _redact = false;
   final _import = TextEditingController();
 
-  String get _json => SimCard.encodeList(widget.cards, redactSecrets: _redact);
+  String get _json {
+    final cards = SimCard.encodeList(widget.cards, redactSecrets: _redact);
+    if (widget.media.isEmpty) return cards;
+    return const JsonEncoder.withIndent('  ').convert({
+      'cards': jsonDecode(cards),
+      'media': [for (final m in widget.media) m.toJson()],
+    });
+  }
 
   void _toast(String m) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
   Future<void> _doImport() async {
     final List<SimCard> cards;
+    List<Medium>? media;
     try {
       cards = SimCard.decodeList(_import.text);
+      final decoded = jsonDecode(_import.text);
+      if (decoded is Map && decoded['media'] is List) {
+        media = Medium.decodeList(decoded['media']);
+      }
     } on Object catch (e) {
       _toast('导入失败: $e');
       return;
@@ -52,7 +76,7 @@ class _BackupPageState extends State<BackupPage> {
       ),
     );
     if (ok != true) return;
-    final saved = await widget.onImport(cards);
+    final saved = await widget.onImport(cards, media);
     if (!mounted) return;
     if (!saved) {
       _toast('导入未保存，当前卡库保持不变');

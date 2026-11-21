@@ -138,7 +138,9 @@ function App() {
 
   const importJson = async (file: File) => {
     try {
-      const imported = JSON.parse(await file.text()) as SimCard[]
+      // Flutter v3.4 backups wrap cards as { cards: [...], media: [...] }.
+      const parsed = JSON.parse(await file.text())
+      const imported = (Array.isArray(parsed) ? parsed : parsed?.cards) as SimCard[]
       if (!Array.isArray(imported)) throw new Error('invalid')
       const seen = new Set<string>()
       const unique = imported.map((card) => {

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../features/hud/hud_theme.dart';
 import '../features/hud/motion.dart';
+import '../models/medium.dart';
 import '../models/sim_card.dart';
 import '../features/cards/iccid_scanner.dart';
 import '../services/carrier_presets.dart';
@@ -12,11 +13,22 @@ import 'form_pickers.dart';
 
 class SimFormPage extends StatefulWidget {
   const SimFormPage(
-      {super.key, this.initial, this.presetSlot, this.existing = const []});
+      {super.key,
+      this.initial,
+      this.presetSlot,
+      this.existing = const [],
+      this.media = const [legacyEstkMedium],
+      this.presetMediumId});
 
   final SimCard? initial;
   final int? presetSlot;
   final List<SimCard> existing;
+
+  /// Slot-bearing media the card can be assigned to.
+  final List<Medium> media;
+
+  /// Medium of [presetSlot] when opened from an empty matrix slot.
+  final String? presetMediumId;
 
   @override
   State<SimFormPage> createState() => _SimFormPageState();
@@ -29,7 +41,13 @@ class _SimFormPageState extends State<SimFormPage> {
   late final _phone = TextEditingController(text: _init?.phoneNumber);
   late final _country = TextEditingController(text: _init?.countryCode ?? 'CN');
   late final _host = TextEditingController(
-      text: _init?.hostName ?? (widget.presetSlot != null ? 'eSTK.me #1' : ''));
+      text: _init?.hostName ??
+          (widget.presetSlot == null
+              ? ''
+              : widget.presetMediumId == null ||
+                      widget.presetMediumId == legacyMediumId
+                  ? 'eSTK.me #1'
+                  : _mediumById(widget.presetMediumId)?.name ?? ''));
   late final _slotDetail = TextEditingController(
       text: _init?.slotDetail ??
           (widget.presetSlot != null ? 'Profile #${widget.presetSlot}' : ''));
@@ -65,11 +83,18 @@ class _SimFormPageState extends State<SimFormPage> {
   late RenewalBasis _renewal = _init?.renewalBasis ?? RenewalBasis.fromAction;
 
   late MediaType _media = _init?.mediaType ??
-      (widget.presetSlot != null ? MediaType.programmable : MediaType.physical);
+      (widget.presetSlot == null
+          ? MediaType.physical
+          : _presetBuiltin
+              ? MediaType.esim
+              : MediaType.programmable);
   late LocationType _location = _init?.locationType ??
-      (widget.presetSlot != null
+      (widget.presetSlot != null && !_presetBuiltin
           ? LocationType.smartCard
           : LocationType.device);
+
+  bool get _presetBuiltin =>
+      _mediumById(widget.presetMediumId)?.kind == MediumKind.builtinEsim;
   late BillingCycle _billing = _init?.billingCycle ?? BillingCycle.monthly;
   late DateTime _deadline =
       _init?.nextDeadlineDate ?? addDays(dateOnly(DateTime.now()), 30);
@@ -139,15 +164,48 @@ class _SimFormPageState extends State<SimFormPage> {
     return n == null || n <= 0 ? '正整数' : null;
   }
 
-  bool get _slotEnabled =>
+  /// Explicitly chosen medium; null lets a programmable card fall back to
+  /// the default eUICC medium (the legacy eSTK for old data).
+  late String? _mediumId = _init?.mediumId ??
+      (widget.presetSlot != null ? widget.presetMediumId : null);
+
+  Medium? _mediumById(String? id) {
+    if (id == null) return null;
+    for (final m in widget.media) {
+      if (m.id == id) return m;
+    }
+    return id == legacyMediumId ? legacyEstkMedium : null;
+  }
+
+  String get _defaultMediumId => widget.media.any((m) => m.id == legacyMediumId)
+      ? legacyMediumId
+      : (widget.media.where((m) => m.kind == MediumKind.euicc).firstOrNull ??
+              widget.media.firstOrNull ??
+              legacyEstkMedium)
+          .id;
+
+  bool get _programmable =>
       _media == MediaType.programmable || _location == LocationType.smartCard;
+
+  bool get _slotEnabled => _mediumId != null || _programmable;
+
+  String? get _effectiveMediumId =>
+      _mediumId ?? (_programmable ? _defaultMediumId : null);
+
+  int get _capacity => _mediumById(_effectiveMediumId)?.capacity ?? estkSlots;
+
+  static const estkSlots = 15;
 
   String? _validateSlot(String? v) {
     if (!_slotEnabled || v == null || v.trim().isEmpty) return null;
     final n = int.tryParse(v.trim());
-    if (n == null || n < 1 || n > 15) return '槽位号需为 1-15';
+    final cap = _capacity;
+    if (n == null || n < 1 || n > cap) return '槽位号需为 1-$cap';
+    final mid = _effectiveMediumId;
     final clash = widget.existing.where((c) =>
-        c.id != _init?.id && c.onProgrammableMedium && c.estkSlotNumber == n);
+        c.id != _init?.id &&
+        c.resolvedMediumId == mid &&
+        c.estkSlotNumber == n);
     if (clash.isNotEmpty) return '槽位 #$n 已被 ${clash.first.carrierName} 占用';
     return null;
   }
@@ -225,6 +283,11 @@ class _SimFormPageState extends State<SimFormPage> {
       slotDetail: _slotDetail.text.trim(),
       estkSlotNumber:
           _slotEnabled && slotText.isNotEmpty ? int.parse(slotText) : null,
+      // Programmable cards on the legacy eSTK keep mediumId null, as before.
+      mediumId: !_slotEnabled ||
+              (_effectiveMediumId == legacyMediumId && _programmable)
+          ? null
+          : _effectiveMediumId,
       isActive: _active,
       planName: _plan.text.trim(),
       balance: double.parse(_balance.text.trim()),
@@ -595,9 +658,20 @@ class _SimFormPageState extends State<SimFormPage> {
                         _planType = t;
                         _syncRuleDefault();
                       }, key: const Key('field-plan-type')),
-                      _dropdown('介质类型', _media, MediaType.values,
-                          (m) => m.label, (m) => _media = m,
-                          key: const Key('field-media')),
+                      KeyedSubtree(
+                        key: ValueKey(_media),
+                        child: _dropdown('载体类型', _media, MediaType.values,
+                            (m) => m.mediumLabel, (m) {
+                          _media = m;
+                          // A carrier SIM has no slot: drop the medium.
+                          if (m == MediaType.physical) {
+                            _mediumId = null;
+                            if (_location == LocationType.smartCard) {
+                              _location = LocationType.device;
+                            }
+                          }
+                        }, key: const Key('field-media')),
+                      ),
                       SizedBox(
                         width: _w,
                         child: SwitchListTile(
@@ -608,12 +682,53 @@ class _SimFormPageState extends State<SimFormPage> {
                       ),
                     ]),
                     if (_kind.hasDataPlan) section('流量套餐', _dataPlanFields()),
-                    section('存放位置 / eSTK 槽位', [
-                      _dropdown('存放位置', _location, LocationType.values,
-                          (l) => l.label, (l) => _location = l),
+                    section('存放位置 / 载体槽位', [
+                      KeyedSubtree(
+                        key: ValueKey(_location),
+                        child: _dropdown('存放位置', _location, LocationType.values,
+                            (l) => l.label, (l) => _location = l),
+                      ),
+                      KeyedSubtree(
+                        key: ValueKey('medium-${_effectiveMediumId ?? ''}'),
+                        child: _dropdown<String>(
+                            '所在载体',
+                            _effectiveMediumId ?? '',
+                            [
+                              '',
+                              for (final m in widget.media) m.id,
+                              if (_effectiveMediumId != null &&
+                                  !widget.media
+                                      .any((m) => m.id == _effectiveMediumId))
+                                _effectiveMediumId!,
+                            ],
+                            (id) => id.isEmpty
+                                ? '不占槽位（运营商实体卡）'
+                                : () {
+                                    final m = _mediumById(id);
+                                    return m == null
+                                        ? id
+                                        : '${m.name} · ${m.capacity} 槽';
+                                  }(), (id) {
+                          _mediumId = id.isEmpty ? null : id;
+                          final m = _mediumById(_mediumId);
+                          if (m == null) {
+                            if (_media == MediaType.programmable) {
+                              _media = MediaType.physical;
+                            }
+                            if (_location == LocationType.smartCard) {
+                              _location = LocationType.device;
+                            }
+                          } else {
+                            _media = m.kind == MediumKind.builtinEsim
+                                ? MediaType.esim
+                                : MediaType.programmable;
+                          }
+                        }, key: const Key('field-medium')),
+                      ),
                       _field(_host, '宿主设备'),
                       _field(_slotDetail, '槽位描述'),
-                      _field(_estkSlot, 'eSTK 槽位号 (1-15)',
+                      _field(_estkSlot,
+                          '${_mediumById(_effectiveMediumId)?.name ?? 'eSTK'} 槽位号 (1-$_capacity)',
                           key: const Key('field-estk-slot'),
                           enabled: _slotEnabled,
                           type: TextInputType.number,

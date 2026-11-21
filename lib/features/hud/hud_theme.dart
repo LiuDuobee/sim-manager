@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/sim_card.dart';
@@ -93,6 +94,8 @@ class HudPalette extends ThemeExtension<HudPalette> {
     required this.wellEdge,
     required this.control,
     required this.dockTint,
+    required this.floatTint,
+    required this.glassSheen,
     required this.stageGradient,
     required this.stageFade,
     required this.tileGradient,
@@ -122,6 +125,13 @@ class HudPalette extends ThemeExtension<HudPalette> {
   /// Recessed cells inside a pane (telemetry cells, empty slots, pills).
   final Color well, wellEdge;
   final Color control, dockTint;
+
+  /// Tint of floating glass (top bars, dock, sheets) over the blurred,
+  /// saturated backdrop; opaque enough to keep text readable over any content.
+  final Color floatTint;
+
+  /// Top highlight of floating glass.
+  final Color glassSheen;
   final List<Color> stageGradient, tileGradient;
   final Color stageFade;
   final List<Color> ocean;
@@ -173,6 +183,8 @@ class HudPalette extends ThemeExtension<HudPalette> {
     wellEdge: Color(0x0FFFFFFF),
     control: Color(0x8C0B1222),
     dockTint: Color(0xD90B1222),
+    floatTint: Color(0xB80B1222),
+    glassSheen: Color(0x1FFFFFFF),
     stageGradient: [Color(0xFF0A1528), Color(0xFF050B17), Color(0xFF02050C)],
     stageFade: Color(0xD902050C),
     tileGradient: [Color(0xFF0D1730), Color(0xFF070D1C)],
@@ -230,6 +242,8 @@ class HudPalette extends ThemeExtension<HudPalette> {
     control: Color(0x8CFFFFFF),
     // --popover oklch(0.985 0.003 265 / 96%) a step thinner
     dockTint: Color(0xD9F9FAFC),
+    floatTint: Color(0xC7F9FAFC),
+    glassSheen: Color(0x8CFFFFFF),
     stageGradient: [Color(0xFFF6F7FA), Color(0xFFEDF0F4), Color(0xFFE3E7ED)],
     stageFade: Color(0xD9E3E7ED),
     tileGradient: [Color(0xFFF9FAFC), Color(0xFFF0F2F6)],
@@ -270,7 +284,18 @@ class GlassPanel extends StatelessWidget {
     this.borderColor,
     this.shadow = true,
     this.solid = false,
+    this.floating = false,
+    this.borderRadius,
   });
+
+  /// Floating layers (top bar, dock, sheets) get the full frosted treatment:
+  /// a wide blur of what scrolls underneath, a saturation lift and a top
+  /// sheen. Inside a [BackdropGroup] they share one backdrop snapshot.
+  final bool floating;
+  final BorderRadius? borderRadius;
+
+  static const floatingSigma = 22.0;
+  static const floatingSaturation = 1.8;
 
   /// Content surfaces are solid (no blur, opaque face); glass is kept for
   /// navigation and floating layers. High-contrast mode makes every pane
@@ -285,7 +310,7 @@ class GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final r = BorderRadius.circular(radius);
+    final r = borderRadius ?? BorderRadius.circular(radius);
     final h = context.hud;
     if (solid || (MediaQuery.maybeHighContrastOf(context) ?? false)) {
       return CustomPaint(
@@ -302,6 +327,7 @@ class GlassPanel extends StatelessWidget {
         ),
       );
     }
+    if (floating) return _floating(context, r);
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: r,
@@ -328,7 +354,99 @@ class GlassPanel extends StatelessWidget {
       ),
     );
   }
+
+  Widget _floating(BuildContext context, BorderRadius r) {
+    final h = context.hud;
+    final filter = ImageFilter.compose(
+      outer: ImageFilter.blur(
+          sigmaX: floatingSigma,
+          sigmaY: floatingSigma,
+          tileMode: TileMode.mirror),
+      inner: ColorFilter.matrix(saturationMatrix(floatingSaturation)),
+    );
+    final face = CustomPaint(
+      foregroundPainter:
+          GlassRimPainter(radius: r.topLeft.x, color: h.glassRim),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: tint ?? h.floatTint,
+          borderRadius: r,
+          border: Border.all(color: borderColor ?? h.glassBorder),
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: r,
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: const [0, .45],
+              colors: [h.glassSheen, h.glassSheen.withValues(alpha: 0)],
+            ),
+          ),
+          child: Padding(padding: padding, child: child),
+        ),
+      ),
+    );
+    final grouped = BackdropGroup.of(context) != null;
+    return DecoratedBox(
+      key: const Key('floating-glass'),
+      decoration: BoxDecoration(
+        borderRadius: r,
+        boxShadow: shadow ? h.glassShadow : null,
+      ),
+      child: ClipRRect(
+        borderRadius: r,
+        child: grouped
+            ? BackdropFilter.grouped(filter: filter, child: face)
+            : BackdropFilter(filter: filter, child: face),
+      ),
+    );
+  }
 }
+
+/// Colour matrix that scales saturation by [s] (1 = unchanged), Rec. 709.
+List<double> saturationMatrix(double s) {
+  const r = .2126, g = .7152, b = .0722;
+  final i = 1 - s;
+  return [
+    r * i + s, g * i, b * i, 0, 0, //
+    r * i, g * i + s, b * i, 0, 0, //
+    r * i, g * i, b * i + s, 0, 0, //
+    0, 0, 0, 1, 0,
+  ];
+}
+
+/// Modal sheet on floating glass: the page behind stays visible, blurred.
+Future<T?> showGlassBottomSheet<T>(BuildContext context,
+        {required WidgetBuilder builder, bool isScrollControlled = false}) =>
+    showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: isScrollControlled,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        child: GlassPanel(
+          key: const Key('glass-sheet'),
+          floating: true,
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 6),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: ctx.hud.muted.withValues(alpha: .5),
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            Flexible(
+                child: Material(
+                    type: MaterialType.transparency, child: builder(ctx))),
+          ]),
+        ),
+      ),
+    );
 
 /// The top line of light of a Solid Glass pane, fading out toward the sides.
 class GlassRimPainter extends CustomPainter {
@@ -463,4 +581,36 @@ class HudLabel extends StatelessWidget {
           fontWeight: FontWeight.w700,
           letterSpacing: 1.6,
           color: color ?? context.hud.sky));
+}
+
+/// Reports its child's laid-out size after each layout that changes it.
+class SizeReporter extends SingleChildRenderObjectWidget {
+  const SizeReporter({super.key, required this.onSize, super.child});
+
+  final ValueChanged<Size> onSize;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      RenderSizeReporter(onSize);
+
+  @override
+  void updateRenderObject(
+          BuildContext context, RenderSizeReporter renderObject) =>
+      renderObject.onSize = onSize;
+}
+
+class RenderSizeReporter extends RenderProxyBox {
+  RenderSizeReporter(this.onSize);
+
+  ValueChanged<Size> onSize;
+  Size? _last;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    if (size == _last) return;
+    _last = size;
+    final s = size;
+    WidgetsBinding.instance.addPostFrameCallback((_) => onSize(s));
+  }
 }
