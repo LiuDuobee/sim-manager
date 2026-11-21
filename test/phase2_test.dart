@@ -206,6 +206,8 @@ void main() {
       expect(cnBal.currency, 'CNY');
       expect(parseRenewalSms('Balance:\n\$25\nTop up successful: \$10').amount,
           10);
+      expect(parseRenewalSms('Balance: \$25; \$10 credit added.').amount, 10);
+      expect(parseRenewalSms('当前余额120元，\n￥50 充值成功').amount, 50);
     });
 
     test('recordTopUp writes the confirmed amount and date', () {
