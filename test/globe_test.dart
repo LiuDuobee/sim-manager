@@ -28,6 +28,17 @@ void main() {
     expect(byIso('BR').contains(lon, lat), isTrue);
   });
 
+  test('antimeridian countries stay local (Fiji, Chukotka)', () {
+    final fj = byIso('FJ');
+    expect(fj.contains(178, -17.8), isTrue);
+    expect(fj.contains(-179.85, -16.2), isTrue);
+    expect(fj.contains(0, -16.5), isFalse);
+    final (lon, _) = fj.centroid;
+    expect(lon.abs(), greaterThan(170));
+    expect(byIso('RU').contains(-175, 66), isTrue);
+    expect(byIso('RU').contains(0, 66), isFalse);
+  });
+
   group('orthographic projection', () {
     final proj = Orthographic(
         centerLon: 110,

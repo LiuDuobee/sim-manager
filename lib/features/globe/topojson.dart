@@ -36,9 +36,12 @@ class GeoCountry {
   int get pointCount => polygons.fold(
       0, (s, p) => s + p.fold(0, (r, ring) => r + ring.length ~/ 2));
 
-  /// Planar ray-casting point-in-polygon on lon/lat (world-atlas already cuts
-  /// polygons at the antimeridian, so planar tests are valid).
-  bool contains(double lon, double lat) {
+  /// Planar ray-casting point-in-polygon on lon/lat; antimeridian rings were
+  /// unwrapped by [unwrapAntimeridian], so west-of-180° points also try +360°.
+  bool contains(double lon, double lat) =>
+      _contains(lon, lat) || (lon < 0 && _contains(lon + 360, lat));
+
+  bool _contains(double lon, double lat) {
     for (var p = 0; p < polygons.length; p++) {
       final b = bounds[p];
       if (lon < b[0] || lon > b[2] || lat < b[1] || lat > b[3]) continue;
@@ -85,7 +88,8 @@ class GeoCountry {
       area += f;
     }
     if (area.abs() < 1e-9) return (ring[0], ring[1]);
-    return (cx / (3 * area), cy / (3 * area));
+    final lon = cx / (3 * area);
+    return (lon > 180 ? lon - 360 : lon, cy / (3 * area));
   }
 
   static double _signedArea(Float64List ring) {
@@ -96,6 +100,28 @@ class GeoCountry {
     }
     return area / 2;
   }
+}
+
+/// Rings of non-polar polygons that touch both ±180° (Fiji, Chukotka) are
+/// shifted to a continuous 0..360° range so planar bounds, hit-tests and
+/// centroids stay local. Projection is unaffected (trig is 360°-periodic).
+List<Float64List> unwrapAntimeridian(List<Float64List> polygon) {
+  final outer = polygon.first;
+  var minLon = 180.0, maxLon = -180.0, minLat = 90.0, maxLat = -90.0;
+  for (var i = 0; i < outer.length; i += 2) {
+    minLon = math.min(minLon, outer[i]);
+    maxLon = math.max(maxLon, outer[i]);
+    minLat = math.min(minLat, outer[i + 1]);
+    maxLat = math.max(maxLat, outer[i + 1]);
+  }
+  final polar = minLat < -80 || maxLat > 84;
+  if (maxLon - minLon <= 180 || polar) return polygon;
+  for (final ring in polygon) {
+    for (var i = 0; i < ring.length; i += 2) {
+      if (ring[i] < 0) ring[i] += 360;
+    }
+  }
+  return polygon;
 }
 
 /// Decodes `objects.countries` of a world-atlas TopoJSON topology
@@ -161,7 +187,7 @@ List<GeoCountry> decodeWorldAtlas(String rawJson) {
           numericId: id,
           iso2: id == null ? null : isoNumericToAlpha2[id],
           name: (g['properties'] as Map?)?['name'] as String? ?? '',
-          polygons: polygons,
+          polygons: polygons.map(unwrapAntimeridian).toList(),
         );
       })
       .where((c) => c.polygons.isNotEmpty)
