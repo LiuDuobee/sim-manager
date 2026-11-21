@@ -61,7 +61,7 @@
 - `armeabi-v7a`：较老的 32 位手机
 - `x86_64`：模拟器 / 部分平板
 
-以后可在 App 里直接更新。
+以后可在 App 里直接更新。从 v3.3.0 起，安卓 APK 都用同一把发布密钥签名（证书 SHA-256 `E7:41:89:1A:99:B4:EE:27:C4:DE:DD:34:85:7E:F2:B6:89:47:02:BC:F1:98:E1:FA:4A:EB:66:3F:B3:AD:BC:42`），可以直接覆盖安装；从 v3.2.1 及更早版本升级需先「复制 JSON」备份、卸载后重装一次。
 
 ## 系统要求
 
@@ -89,6 +89,20 @@ flutter analyze
 flutter test
 flutter run
 ```
+
+### 安卓正式签名
+
+`flutter build apk --release` 从 `android/key.properties` 或环境变量读取发布密钥；两者都没有时退回调试密钥（仅供本地调试，不能发布）。`key.properties`、`*.jks`、`*.keystore` 已在 `.gitignore` 中，切勿提交。
+
+```properties
+# android/key.properties
+storeFile=/绝对路径/simvault-release.jks
+storePassword=...
+keyAlias=simvault
+keyPassword=...
+```
+
+对应环境变量：`SIMVAULT_KEYSTORE`、`SIMVAULT_KEYSTORE_PASSWORD`、`SIMVAULT_KEY_ALIAS`、`SIMVAULT_KEY_PASSWORD`（优先于 `key.properties`）。
 
 ## 许可证
 
