@@ -305,13 +305,15 @@ class _SimFormPageState extends State<SimFormPage> {
                         type: TextInputType.number),
                   ]),
                   section('保号规则', [
-                    _dropdown<String>('运营商预设（自动带出规则，可改）', _presetId,
-                        ['', for (final p in carrierPresets) p.id], (id) {
-                      final p = presetById(id);
-                      return p == null
-                          ? '自定义'
-                          : '${p.name} · ${p.cycleDays} 天 · ${p.type.label}';
-                    }, _applyPreset, key: const Key('field-preset')),
+                    SizedBox(
+                        width: _wide,
+                        child: _dropdown<String>('运营商预设（自动带出规则，可改）', _presetId,
+                            ['', for (final p in carrierPresets) p.id], (id) {
+                          final p = presetById(id);
+                          return p == null
+                              ? '自定义'
+                              : '${p.name} · ${p.cycleDays} 天 · ${p.type.label}';
+                        }, _applyPreset, key: const Key('field-preset'))),
                     _dropdown('保号类型', _kaType, KeepAliveType.values,
                         (t) => t.label, (t) => _kaType = t,
                         key: const Key('field-ka-type')),
