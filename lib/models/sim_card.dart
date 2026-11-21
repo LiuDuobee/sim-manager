@@ -293,12 +293,26 @@ class SimCard {
       };
 
   factory SimCard.fromJson(Map<String, dynamic> json) {
-    final deadline = _parseDate(json['nextDeadlineDate']) ??
-        _parseDate(json['nextRenewalDate']) ??
-        _parseDate(json['expiryDate']);
-    if (deadline == null) {
+    // Legacy v1 records track renewal and card expiry separately; the
+    // keep-alive deadline is whichever comes first.
+    final candidates = [
+      _parseDate(json['nextDeadlineDate']),
+      _parseDate(json['nextRenewalDate']),
+      _parseDate(json['expiryDate']),
+    ].whereType<DateTime>().toList()
+      ..sort();
+    if (candidates.isEmpty) {
       throw const FormatException('nextDeadlineDate 缺失');
     }
+    final deadline = candidates.first;
+    final legacyExpiry = _parseDate(json['expiryDate']);
+    var notes = json['notes'] as String? ?? '';
+    if (legacyExpiry != null && legacyExpiry != deadline) {
+      final tag = '卡片有效期 ${_ymd(legacyExpiry)}';
+      if (!notes.contains(tag)) notes = notes.isEmpty ? tag : '$notes\n$tag';
+    }
+    final cycleCost = (json['cycleCost'] as num?)?.toDouble() ?? 0;
+    final monthlyFee = (json['monthlyFee'] as num?)?.toDouble() ?? 0;
     return SimCard(
       id: json['id'] as String? ?? '${DateTime.now().microsecondsSinceEpoch}',
       carrierName: json['carrierName'] as String? ??
@@ -318,9 +332,7 @@ class SimCard {
       balance: (json['balance'] as num?)?.toDouble() ?? 0,
       currency: json['currency'] as String? ?? 'CNY',
       billingCycle: BillingCycleLabel.parse(json['billingCycle'] as String?),
-      cycleCost: (json['cycleCost'] as num?)?.toDouble() ??
-          (json['monthlyFee'] as num?)?.toDouble() ??
-          0,
+      cycleCost: cycleCost > 0 ? cycleCost : monthlyFee,
       keepAliveCycleDays: (json['keepAliveCycleDays'] as num?)?.toInt() ?? 180,
       keepAliveAction: json['keepAliveAction'] as String? ?? '',
       lastKeepAliveDate: _parseDate(json['lastKeepAliveDate']),
@@ -336,7 +348,7 @@ class SimCard {
       boundServices: (json['boundServices'] as List? ?? const [])
           .whereType<String>()
           .toList(),
-      notes: json['notes'] as String? ?? '',
+      notes: notes,
     );
   }
 
