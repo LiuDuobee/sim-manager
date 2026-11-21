@@ -11,12 +11,14 @@ class EstkMatrixCard extends StatelessWidget {
     required this.selectedSlot,
     required this.onSelectSlot,
     required this.onWriteToSlot,
+    this.compact = false,
   });
 
   final EstkSlotLayout layout;
   final int? selectedSlot;
   final ValueChanged<int?> onSelectSlot;
   final ValueChanged<int> onWriteToSlot;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -91,7 +93,7 @@ class EstkMatrixCard extends StatelessWidget {
         onTap: () => onSelectSlot(isSelected ? null : n),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          height: 30,
+          height: compact ? Hud.minTap : 30,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: occupied

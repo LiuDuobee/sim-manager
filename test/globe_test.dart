@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sim_manager/features/globe/atlas_globe.dart';
@@ -115,5 +116,35 @@ void main() {
   test('wrapLonDelta picks the short way round', () {
     expect(wrapLonDelta(340), -20);
     expect(wrapLonDelta(-200), 160);
+  });
+
+  testWidgets('only primary clicks/taps select a country', (tester) async {
+    final hits = <String?>[];
+    final c =
+        GlobeController(centerLon: 116.4, centerLat: 39.9, spinning: false);
+    await tester.pumpWidget(MaterialApp(
+      home: Center(
+        child: SizedBox.square(
+          dimension: 400,
+          child: AtlasGlobe(
+            controller: c,
+            countries: countries,
+            nodes: const [],
+            onCountryTap: (iso, _, __, ___) => hits.add(iso),
+          ),
+        ),
+      ),
+    ));
+    final center = tester.getCenter(find.byType(AtlasGlobe));
+    for (final button in [kSecondaryMouseButton, kMiddleMouseButton]) {
+      final g = await tester.startGesture(center,
+          kind: PointerDeviceKind.mouse, buttons: button);
+      await g.up();
+      await tester.pump();
+    }
+    expect(hits, isEmpty);
+    await tester.tapAt(center);
+    await tester.pump();
+    expect(hits, ['CN']);
   });
 }

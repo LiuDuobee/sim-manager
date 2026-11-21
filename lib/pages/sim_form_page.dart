@@ -117,13 +117,26 @@ class _SimFormPageState extends State<SimFormPage> {
     Navigator.pop(context, card);
   }
 
+  // Field widths: two 260dp columns on wide screens; on phones every field
+  // takes the full content width instead of leaving a dead right margin.
+  double _w = 260, _wide = 532;
+
+  void _fitFields(double contentWidth) {
+    if (contentWidth < 532) {
+      _w = _wide = contentWidth;
+    } else {
+      _w = 260;
+      _wide = 532;
+    }
+  }
+
   Widget _field(TextEditingController c, String label,
           {Key? key,
           String? Function(String?)? validator,
           TextInputType? type,
           bool enabled = true}) =>
       SizedBox(
-        width: 260,
+        width: _w,
         child: TextFormField(
           key: key,
           controller: c,
@@ -139,7 +152,7 @@ class _SimFormPageState extends State<SimFormPage> {
           String Function(T) text, ValueChanged<T> onChanged,
           {Key? key}) =>
       SizedBox(
-        width: 260,
+        width: _w,
         child: DropdownButtonFormField<T>(
           key: key,
           initialValue: value,
@@ -154,8 +167,11 @@ class _SimFormPageState extends State<SimFormPage> {
         ),
       );
 
+  double _pad(BuildContext context) => Hud.isCompact(context) ? 16 : 24;
+
   @override
   Widget build(BuildContext context) {
+    _fitFields(MediaQuery.sizeOf(context).width - 2 * _pad(context));
     Widget section(String title, List<Widget> children) => Padding(
           padding: const EdgeInsets.only(bottom: 20),
           child:
@@ -181,7 +197,7 @@ class _SimFormPageState extends State<SimFormPage> {
       body: Form(
           key: _form,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(_pad(context)),
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -201,7 +217,7 @@ class _SimFormPageState extends State<SimFormPage> {
                         (m) => _media = m,
                         key: const Key('field-media')),
                     SizedBox(
-                      width: 260,
+                      width: _w,
                       child: SwitchListTile(
                         title: const Text('在线启用'),
                         value: _active,
@@ -241,7 +257,7 @@ class _SimFormPageState extends State<SimFormPage> {
                                 ? null
                                 : '正整数'),
                     SizedBox(
-                      width: 260,
+                      width: _w,
                       child: OutlinedButton.icon(
                         key: const Key('field-deadline'),
                         onPressed: () async {
@@ -260,7 +276,7 @@ class _SimFormPageState extends State<SimFormPage> {
                             '下次死线 ${DateFormat('yyyy-MM-dd').format(_deadline)}'),
                       ),
                     ),
-                    SizedBox(width: 532, child: _field(_action, '保号动作')),
+                    SizedBox(width: _wide, child: _field(_action, '保号动作')),
                   ]),
                   section('卡背机密', [
                     _field(_iccid, 'ICCID', key: const Key('field-iccid')),
@@ -268,8 +284,8 @@ class _SimFormPageState extends State<SimFormPage> {
                     _field(_puk, 'PUK1'),
                     _field(_lpa, 'eSIM LPA 激活串'),
                     SizedBox(
-                        width: 532, child: _field(_services, '绑定服务 (逗号分隔)')),
-                    SizedBox(width: 532, child: _field(_notes, '备注')),
+                        width: _wide, child: _field(_services, '绑定服务 (逗号分隔)')),
+                    SizedBox(width: _wide, child: _field(_notes, '备注')),
                   ]),
                 ]),
           )),
