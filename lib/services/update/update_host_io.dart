@@ -140,13 +140,18 @@ class PlatformUpdateHost implements UpdateHost {
         // replaced in place.
         final zip = File(path);
         final dest = zip.parent.path;
-        String q(String s) => "'${s.replaceAll("'", "''")}'";
+        // Paths go through the environment, never into the script text, so
+        // no character in them needs PowerShell quoting.
         final r = await Process.run('powershell', [
           '-NoProfile',
           '-NonInteractive',
           '-Command',
-          'Expand-Archive -LiteralPath ${q(path)} -DestinationPath ${q(dest)} -Force',
-        ]);
+          r'Expand-Archive -LiteralPath $env:SIMVAULT_ZIP '
+              r'-DestinationPath $env:SIMVAULT_DEST -Force',
+        ], environment: {
+          'SIMVAULT_ZIP': path,
+          'SIMVAULT_DEST': dest
+        });
         if (r.exitCode != 0) {
           return InstallOutcome(InstallStatus.failed, error: r.stderr);
         }
