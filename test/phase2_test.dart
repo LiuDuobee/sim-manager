@@ -208,6 +208,7 @@ void main() {
           10);
       expect(parseRenewalSms('Balance: \$25; \$10 credit added.').amount, 10);
       expect(parseRenewalSms('当前余额120元，\n￥50 充值成功').amount, 50);
+      expect(parseRenewalSms('余额120元，充值成功：\n￥50').amount, 50);
     });
 
     test('recordTopUp writes the confirmed amount and date', () {
