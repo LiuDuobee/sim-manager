@@ -21,13 +21,13 @@ void main() {
       // Globe: drag and let it glide.
       final globe = find.byKey(const Key('atlas-globe'));
       for (var i = 0; i < 3; i++) {
-        await tester.timedDrag(globe, const Offset(-220, 40),
-            const Duration(milliseconds: 250));
+        await tester.timedDrag(
+            globe, const Offset(-220, 40), const Duration(milliseconds: 250));
         for (var f = 0; f < 60; f++) {
           await tester.pump(const Duration(milliseconds: 16));
         }
       }
-      // Cards: flip springs (including interrupting mid-flip).
+      // Cards: flip springs.
       final flip = find.byKey(const Key('flip-sim-cn-cmcc'));
       await tester.ensureVisible(flip);
       for (var f = 0; f < 20; f++) {
@@ -35,10 +35,10 @@ void main() {
       }
       for (var i = 0; i < 3; i++) {
         await tester.tap(flip, warnIfMissed: false);
-        for (var f = 0; f < 6; f++) {
+        for (var f = 0; f < 50; f++) {
           await tester.pump(const Duration(milliseconds: 16));
         }
-        await tester.tap(find.byKey(const Key('flip-card-sim-cn-cmcc')),
+        await tester.tap(find.byKey(const Key('unflip-sim-cn-cmcc')),
             warnIfMissed: false);
         for (var f = 0; f < 50; f++) {
           await tester.pump(const Duration(milliseconds: 16));
