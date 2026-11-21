@@ -115,9 +115,14 @@ final _clauseBreak = RegExp(r'[，,。;；!！\n]|\.\s');
       var lead = text
           .substring(m.start < 14 ? 0 : m.start - 14, m.start)
           .toLowerCase();
-      // Only within the same clause: "余额120元，充值成功￥50" keeps ¥50.
-      final cut = _clauseBreak.allMatches(lead).lastOrNull;
-      if (cut != null) lead = lead.substring(cut.end);
+      // Only within the same clause: "余额120元，充值成功￥50" keeps ¥50. A
+      // number opening its line ("Balance:\n\$25") keeps the label above.
+      for (final cut in _clauseBreak.allMatches(lead).toList().reversed) {
+        if (lead.substring(cut.end).trim().isNotEmpty) {
+          lead = lead.substring(cut.end);
+          break;
+        }
+      }
       if (_balanceWords.any(lead.contains)) continue;
       found.add((m.start, value, _currencyOf(m.group(curGroup)!)));
     }
