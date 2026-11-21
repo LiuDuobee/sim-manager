@@ -16,6 +16,7 @@ import '../features/cards/brand.dart';
 import '../features/hud/hud_theme.dart';
 import '../features/hud/motion.dart';
 import '../features/settings/theme_mode.dart';
+import '../features/settings/update_ui.dart';
 import '../models/sim_card.dart';
 import '../services/estk_slots.dart';
 import '../services/file_export.dart';
@@ -23,14 +24,19 @@ import '../services/ics_export.dart';
 import '../services/seed_cards.dart';
 import '../services/sim_repository.dart';
 import '../services/time_river.dart';
+import '../services/update/update_logic.dart';
+import '../services/update/update_services.dart';
 import 'backup_page.dart';
 import 'sim_form_page.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.repository, this.atlasLoader});
+  const HomePage({super.key, this.repository, this.atlasLoader, this.updates});
 
   final SimRepository? repository;
   final Future<List<GeoCountry>> Function()? atlasLoader;
+
+  /// Checks GitHub Releases once a day on launch when set.
+  final UpdateServices? updates;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -63,6 +69,12 @@ class _HomePageState extends State<HomePage> {
 
   static const privacyPrefsKey = 'simvault.maskNumbers';
 
+  UpdateServices? _platformUpdates;
+  UpdateServices get _updates =>
+      widget.updates ?? (_platformUpdates ??= UpdateServices.platform());
+  late final Future<String> _version =
+      _updates.checker.currentVersion().catchError((Object _) => '');
+
   @override
   void initState() {
     super.initState();
@@ -86,6 +98,9 @@ class _HomePageState extends State<HomePage> {
       final v = p.getBool(privacyPrefsKey) ?? false;
       if (mounted && v != _maskNumbers) setState(() => _maskNumbers = v);
     });
+    if (widget.updates != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _autoCheckUpdate());
+    }
     (widget.atlasLoader ?? loadWorldAtlas)().then(
       (c) => mounted ? setState(() => _countries = c) : null,
       onError: (Object e) =>
@@ -1305,6 +1320,26 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _autoCheckUpdate() async {
+    final r = await _updates.checker.autoCheck();
+    if (r == null || !mounted) return;
+    await showUpdateAvailable(context,
+        release: r.release!, current: r.current, host: _updates.host);
+  }
+
+  Future<void> _checkUpdateNow() async {
+    _toast('正在检查更新…');
+    final r = await _updates.checker.check();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    if (r.status == UpdateStatus.available) {
+      await showUpdateAvailable(context,
+          release: r.release!, current: r.current, host: _updates.host);
+    } else {
+      await showUpdateResult(context, r, _updates.host);
+    }
+  }
+
   Future<void> _openSettings() => showModalBottomSheet<void>(
         context: context,
         showDragHandle: true,
@@ -1321,6 +1356,21 @@ class _HomePageState extends State<HomePage> {
                   setSheet(() {});
                   final p = await SharedPreferences.getInstance();
                   await p.setBool(privacyPrefsKey, v);
+                },
+              ),
+              ListTile(
+                key: const Key('check-update'),
+                leading: const Icon(Icons.system_update_alt),
+                title: const Text('检查更新'),
+                subtitle: FutureBuilder<String>(
+                  future: _version,
+                  builder: (_, v) => Text(
+                      '当前版本 ${v.data?.isNotEmpty == true ? 'v${v.data}' : '—'}'
+                      ' · 启动时每天自动检查一次 GitHub Releases'),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _checkUpdateNow();
                 },
               ),
               const SizedBox(height: 12),
