@@ -125,11 +125,22 @@ class _HomePageState extends State<HomePage> {
       {bool vaultFirst = false}) {
     final result = _writes.then((_) async {
       final (cards, archive) = change(_cards, _archive);
+      var archiveWritten = false;
       try {
         if (vaultFirst && !identical(cards, _cards)) await _repo.save(cards);
-        if (!identical(archive, _archive)) await _repo.saveArchive(archive);
+        if (!identical(archive, _archive)) {
+          await _repo.saveArchive(archive);
+          archiveWritten = true;
+        }
         if (!vaultFirst && !identical(cards, _cards)) await _repo.save(cards);
       } on Object catch (e) {
+        // Roll the archive back so a failed vault write leaves storage as
+        // it was (best effort; the original error is what gets reported).
+        if (archiveWritten) {
+          try {
+            await _repo.saveArchive(_archive);
+          } on Object catch (_) {}
+        }
         if (mounted) _toast('保存失败，本地数据未改动: $e');
         return false;
       }
