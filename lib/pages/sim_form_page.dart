@@ -83,11 +83,18 @@ class _SimFormPageState extends State<SimFormPage> {
   late RenewalBasis _renewal = _init?.renewalBasis ?? RenewalBasis.fromAction;
 
   late MediaType _media = _init?.mediaType ??
-      (widget.presetSlot != null ? MediaType.programmable : MediaType.physical);
+      (widget.presetSlot == null
+          ? MediaType.physical
+          : _presetBuiltin
+              ? MediaType.esim
+              : MediaType.programmable);
   late LocationType _location = _init?.locationType ??
-      (widget.presetSlot != null
+      (widget.presetSlot != null && !_presetBuiltin
           ? LocationType.smartCard
           : LocationType.device);
+
+  bool get _presetBuiltin =>
+      _mediumById(widget.presetMediumId)?.kind == MediumKind.builtinEsim;
   late BillingCycle _billing = _init?.billingCycle ?? BillingCycle.monthly;
   late DateTime _deadline =
       _init?.nextDeadlineDate ?? addDays(dateOnly(DateTime.now()), 30);
