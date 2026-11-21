@@ -2,14 +2,9 @@
 /// scanned barcode payload. Returns null when none passes the check.
 String? extractIccid(String raw) {
   final digits = raw.replaceAll(RegExp(r'[\s-]'), '');
-  for (final m in RegExp(r'89\d{17,18}').allMatches(digits)) {
-    final candidate = m.group(0)!;
-    // Try the longest form first, then the 19-digit one.
-    for (final len in [20, 19]) {
-      if (candidate.length >= len && luhnValid(candidate.substring(0, len))) {
-        return candidate.substring(0, len);
-      }
-    }
+  // A whole digit run must be the ICCID; never shorten one to pass Luhn.
+  for (final m in RegExp(r'(?<!\d)89\d{17,18}(?!\d)').allMatches(digits)) {
+    if (luhnValid(m.group(0)!)) return m.group(0);
   }
   return null;
 }
