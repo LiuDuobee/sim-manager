@@ -30,7 +30,9 @@ class EstkMatrixCard extends StatelessWidget {
         Text(layout.usageLabel,
             key: const Key('slot-usage'),
             style: Hud.mono.copyWith(
-                fontSize: 11, fontWeight: FontWeight.w700, color: Hud.amber)),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: context.hud.amber)),
       ]),
       const SizedBox(height: 10),
       for (var row = 0; row < estkRows; row++)
@@ -39,7 +41,7 @@ class EstkMatrixCard extends StatelessWidget {
           child: Row(children: [
             for (var col = 0; col < estkColumns; col++) ...[
               if (col > 0) const SizedBox(width: 6),
-              Expanded(child: _slot(row * estkColumns + col + 1)),
+              Expanded(child: _slot(context, row * estkColumns + col + 1)),
             ],
           ]),
         ),
@@ -54,7 +56,9 @@ class EstkMatrixCard extends StatelessWidget {
                 key: const ValueKey('hint'),
                 style: TextStyle(
                     fontSize: 11,
-                    color: layout.overflow.isEmpty ? Hud.dim : Hud.rose))
+                    color: layout.overflow.isEmpty
+                        ? context.hud.dim
+                        : context.hud.rose))
             : selectedCard != null
                 ? Text(
                     '槽位 #$selected 已占用 · ${selectedCard.carrierName} '
@@ -62,12 +66,12 @@ class EstkMatrixCard extends StatelessWidget {
                     key: const Key('slot-detail'),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Hud.amber))
+                    style: TextStyle(fontSize: 11, color: context.hud.amber))
                 : Row(key: const Key('slot-detail'), children: [
                     Expanded(
                       child: Text('槽位 #$selected 空闲可用',
-                          style:
-                              const TextStyle(fontSize: 11, color: Hud.muted)),
+                          style: TextStyle(
+                              fontSize: 11, color: context.hud.muted)),
                     ),
                     TextButton(
                       key: const Key('slot-write'),
@@ -79,7 +83,8 @@ class EstkMatrixCard extends StatelessWidget {
     ]);
   }
 
-  Widget _slot(int n) {
+  Widget _slot(BuildContext context, int n) {
+    final h = context.hud;
     final card = layout.slots[n];
     final isSelected = selectedSlot == n;
     final occupied = card != null;
@@ -97,15 +102,17 @@ class EstkMatrixCard extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: occupied
-                ? (isSelected ? Hud.amber : Hud.blue.withValues(alpha: .35))
-                : const Color(0x99020617),
+                ? (isSelected
+                    ? context.hud.amber
+                    : context.hud.blue.withValues(alpha: .35))
+                : h.well,
             borderRadius: BorderRadius.circular(7),
             border: Border.all(
                 color: isSelected
-                    ? Colors.white
+                    ? h.fg
                     : occupied
-                        ? Hud.sky.withValues(alpha: .6)
-                        : Colors.white.withValues(alpha: .06)),
+                        ? h.sky.withValues(alpha: .6)
+                        : h.wellEdge),
           ),
           child: Text(
             occupied ? '#$n ${card.countryCode}' : '#$n',
@@ -113,8 +120,8 @@ class EstkMatrixCard extends StatelessWidget {
                 fontSize: 10,
                 fontWeight: occupied ? FontWeight.w800 : FontWeight.w400,
                 color: occupied
-                    ? (isSelected ? const Color(0xFF020617) : Colors.white)
-                    : Hud.dim),
+                    ? (isSelected ? h.onAccent : h.fg)
+                    : context.hud.dim),
           ),
         ),
       ),

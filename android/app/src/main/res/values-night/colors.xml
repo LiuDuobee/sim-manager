@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- HudPalette.dark.bg -->
+    <color name="simvault_bg">#FF030712</color>
+</resources>

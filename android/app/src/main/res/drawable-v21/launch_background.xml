@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Dark launch surface matching the Flutter HUD background (Hud.bg) -->
+<!-- Launch surface matching HudPalette.bg (light in values, dark in values-night) -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/simvault_bg" />
 </layer-list>

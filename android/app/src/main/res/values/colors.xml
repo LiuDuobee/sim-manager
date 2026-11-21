@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="simvault_bg">#FF030712</color>
+    <!-- HudPalette.light.bg (Solid Glass daylight background) -->
+    <color name="simvault_bg">#FFE4E6EB</color>
 </resources>
