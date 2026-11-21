@@ -279,8 +279,14 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _restore(SimCard card) async {
     final today = dateOnly(DateTime.now());
-    var slotCleared = false;
+    var slotCleared = false, restoredNow = false;
     if (!await _persistBoth((cards, archive) {
+      // A second tap while the first restore is still saving: nothing to do.
+      if (!archive.any((c) => c.id == card.id) ||
+          cards.any((c) => c.id == card.id)) {
+        return (cards, archive);
+      }
+      restoredNow = true;
       var restored = card
           .copyWith(archivedAt: () => null)
           .withEvent(CardEvent(at: today, type: CardEventType.restore));
@@ -298,6 +304,7 @@ class _HomePageState extends State<HomePage> {
     }, vaultFirst: true)) {
       return;
     }
+    if (!restoredNow) return;
     _toast(slotCleared
         ? '已恢复 ${card.carrierName}；原 eSTK 槽位 #${card.estkSlotNumber} 已被占用，请重新分配'
         : '已恢复 ${card.carrierName}');
