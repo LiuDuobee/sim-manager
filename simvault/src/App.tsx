@@ -144,7 +144,7 @@ function App() {
       const unique = imported.map((card) => {
         const id = card.id && !seen.has(card.id) ? card.id : newCardId()
         seen.add(id)
-        return id === card.id ? card : { ...card, id }
+        return { ...createBlankCard(), ...card, id }
       })
       await persist(unique)
       setNotice(`已导入 ${imported.length} 张卡片`)
