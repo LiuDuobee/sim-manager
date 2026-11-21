@@ -89,6 +89,12 @@ class _AtlasGlobeState extends State<AtlasGlobe>
     super.dispose();
   }
 
+  // One-finger drag rotates, two-finger pinch zooms. A touch sequence that
+  // only ever had one pointer down and barely moved is a tap.
+  double _lastScale = 1, _travel = 0;
+  int _pointers = 0, _maxPointers = 0, _lastCount = 0;
+  Offset _downAt = Offset.zero;
+
   void _handleTap(Offset local, Size size) {
     final projection = projectionFor(widget.controller, size);
     for (final (node, pos) in visibleNodes(projection, widget.nodes)) {
@@ -115,6 +121,21 @@ class _AtlasGlobeState extends State<AtlasGlobe>
     return LayoutBuilder(builder: (context, constraints) {
       final size = constraints.biggest;
       return Listener(
+        onPointerDown: (e) {
+          if (_pointers++ == 0) {
+            _maxPointers = 0;
+            _travel = 0;
+            _downAt = e.localPosition;
+          }
+          _maxPointers = math.max(_maxPointers, _pointers);
+        },
+        onPointerMove: (e) => _travel += e.delta.distance,
+        onPointerUp: (e) {
+          if (--_pointers == 0 && _maxPointers == 1 && _travel < kTouchSlop) {
+            _handleTap(_downAt, size);
+          }
+        },
+        onPointerCancel: (_) => _pointers = math.max(0, _pointers - 1),
         onPointerSignal: (event) {
           if (event is PointerScrollEvent) {
             // Claim the wheel so the page behind the globe does not scroll.
@@ -128,17 +149,37 @@ class _AtlasGlobeState extends State<AtlasGlobe>
           cursor: c.dragging
               ? SystemMouseCursors.grabbing
               : SystemMouseCursors.grab,
-          child: GestureDetector(
+          child: RawGestureDetector(
             behavior: HitTestBehavior.opaque,
-            onPanStart: (_) => c.setDragging(true),
-            onPanUpdate: (d) {
-              final r = projectionFor(c, size).radius;
-              c.dragBy(d.delta.dx / r * 180 / math.pi,
-                  d.delta.dy / r * 180 / math.pi);
+            gestures: {
+              _GlobeGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<_GlobeGestureRecognizer>(
+                _GlobeGestureRecognizer.new,
+                (r) => r
+                  ..onStart = (d) {
+                    _lastScale = 1;
+                    _lastCount = d.pointerCount;
+                    c.setDragging(true);
+                  }
+                  ..onUpdate = (d) {
+                    // A finger landing or lifting moves the focal point and
+                    // rebases the scale; skip that frame instead of jumping.
+                    if (d.pointerCount != _lastCount) {
+                      _lastCount = d.pointerCount;
+                      _lastScale = d.scale;
+                      return;
+                    }
+                    final r = projectionFor(c, size).radius;
+                    c.dragBy(d.focalPointDelta.dx / r * 180 / math.pi,
+                        d.focalPointDelta.dy / r * 180 / math.pi);
+                    if (d.pointerCount >= 2 && d.scale > 0) {
+                      c.zoomBy(d.scale / _lastScale);
+                      _lastScale = d.scale;
+                    }
+                  }
+                  ..onEnd = (_) => c.setDragging(false),
+              ),
             },
-            onPanEnd: (_) => c.setDragging(false),
-            onPanCancel: () => c.setDragging(false),
-            onTapUp: (d) => _handleTap(d.localPosition, size),
             child: CustomPaint(
               size: size,
               painter: GlobePainter(
@@ -322,4 +363,14 @@ class GlobePainter extends CustomPainter {
       old.nodes != nodes ||
       old.selectedCode != selectedCode ||
       old.highlightedCodes != highlightedCodes;
+}
+
+/// Scale recognizer that claims the pointer as soon as it lands on the globe,
+/// so a drag on the globe rotates it instead of scrolling the page around it.
+class _GlobeGestureRecognizer extends ScaleGestureRecognizer {
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    resolvePointer(event.pointer, GestureDisposition.accepted);
+  }
 }

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -19,6 +20,27 @@ class Hud {
 
   static const mono = TextStyle(fontFamily: 'monospace', letterSpacing: .4);
 
+  /// Below this logical width the app uses the phone layout.
+  static const compactWidth = 600.0;
+
+  /// Minimum touch target (Material / Android accessibility guideline).
+  static const minTap = 48.0;
+
+  static bool isCompact(BuildContext context) =>
+      MediaQuery.sizeOf(context).width < compactWidth;
+
+  /// Solid Glass edge light and shadow.
+  static const glassRim = Color(0x29FFFFFF);
+  static const glassEdge = Color(0x14FFFFFF);
+  static const glassShadow = [
+    BoxShadow(color: Color(0x1A000000), offset: Offset(0, 1), blurRadius: 2),
+    BoxShadow(
+        color: Color(0x99000000),
+        offset: Offset(0, 12),
+        blurRadius: 32,
+        spreadRadius: -14),
+  ];
+
   static Color tierColor(UrgencyTier t) => switch (t) {
         UrgencyTier.p1 => rose,
         UrgencyTier.p2 => amber,
@@ -33,6 +55,10 @@ class Hud {
 }
 
 /// Translucent, blurred HUD panel (telemetry readouts etc.).
+///
+/// Solid Glass finish: the face is one flat smoky tint; the material shows
+/// only at the edge — a line of light along the top, a hairline all round and
+/// a soft shadow gathered underneath.
 class GlassPanel extends StatelessWidget {
   const GlassPanel({
     super.key,
@@ -41,6 +67,7 @@ class GlassPanel extends StatelessWidget {
     this.radius = 14,
     this.tint = const Color(0x8C020617),
     this.borderColor = const Color(0x3338BDF8),
+    this.shadow = true,
   });
 
   final Widget child;
@@ -48,23 +75,94 @@ class GlassPanel extends StatelessWidget {
   final double radius;
   final Color tint;
   final Color borderColor;
+  final bool shadow;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
+  Widget build(BuildContext context) {
+    final r = BorderRadius.circular(radius);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: r,
+        boxShadow: shadow ? Hud.glassShadow : null,
+      ),
+      child: ClipRRect(
+        borderRadius: r,
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            padding: padding,
-            decoration: BoxDecoration(
-              color: tint,
-              borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: borderColor),
+          child: CustomPaint(
+            foregroundPainter: GlassRimPainter(radius: radius),
+            child: Container(
+              padding: padding,
+              decoration: BoxDecoration(
+                color: tint,
+                borderRadius: r,
+                border: Border.all(color: borderColor),
+              ),
+              child: child,
             ),
-            child: child,
           ),
         ),
-      );
+      ),
+    );
+  }
+}
+
+/// The top line of light of a Solid Glass pane, fading out toward the sides.
+class GlassRimPainter extends CustomPainter {
+  const GlassRimPainter({required this.radius, this.color = Hud.glassRim});
+
+  final double radius;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = (Offset.zero & size).deflate(.75);
+    final rrect = RRect.fromRectAndRadius(
+        rect, Radius.circular(math.max(0, radius - .75)));
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(
+        0, 0, size.width, math.min(size.height / 2, math.max(radius, 6))));
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..shader = LinearGradient(colors: [
+          color.withValues(alpha: 0),
+          color,
+          color,
+          color.withValues(alpha: 0),
+        ], stops: const [
+          0,
+          .18,
+          .82,
+          1
+        ]).createShader(Offset.zero & size),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(GlassRimPainter old) =>
+      old.radius != radius || old.color != color;
+}
+
+/// Ensures a tap area of at least [Hud.minTap] around a smaller visual.
+class TapTarget extends StatelessWidget {
+  const TapTarget({super.key, required this.child, this.enabled = true});
+
+  final Widget child;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) => enabled
+      ? ConstrainedBox(
+          constraints:
+              const BoxConstraints(minWidth: Hud.minTap, minHeight: Hud.minTap),
+          child: Center(widthFactor: 1, heightFactor: 1, child: child),
+        )
+      : child;
 }
 
 class HudPill extends StatelessWidget {
@@ -84,41 +182,43 @@ class HudPill extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => InkWell(
+  Widget build(BuildContext context) {
+    final compact = Hud.isCompact(context);
+    final pill = AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: EdgeInsets.symmetric(
+          horizontal: compact ? 14 : 12, vertical: compact ? 9 : 6),
+      decoration: BoxDecoration(
+        color: selected ? color : const Color(0x66020617),
         borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: selected ? color : const Color(0x66020617),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-                color: selected ? color : Colors.white.withValues(alpha: .12)),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                        color: color.withValues(alpha: .35), blurRadius: 12)
-                  ]
-                : null,
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: selected ? const Color(0xFF020617) : Colors.white)),
-            if (count != null) ...[
-              const SizedBox(width: 6),
-              Text('$count',
-                  style: Hud.mono.copyWith(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: selected ? const Color(0xFF020617) : Hud.muted)),
-            ],
-          ]),
-        ),
-      );
+        border: Border.all(
+            color: selected ? color : Colors.white.withValues(alpha: .12)),
+        boxShadow: selected
+            ? [BoxShadow(color: color.withValues(alpha: .35), blurRadius: 12)]
+            : null,
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(label,
+            style: TextStyle(
+                fontSize: compact ? 13 : 12,
+                fontWeight: FontWeight.w700,
+                color: selected ? const Color(0xFF020617) : Colors.white)),
+        if (count != null) ...[
+          const SizedBox(width: 6),
+          Text('$count',
+              style: Hud.mono.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? const Color(0xFF020617) : Hud.muted)),
+        ],
+      ]),
+    );
+    return InkWell(
+      customBorder: const StadiumBorder(),
+      onTap: onTap,
+      child: TapTarget(enabled: compact, child: pill),
+    );
+  }
 }
 
 class HudLabel extends StatelessWidget {

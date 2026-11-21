@@ -90,6 +90,9 @@ class HudStage extends StatelessWidget {
     final nodes = buildGlobeNodes(filteredCards, countries ?? const []);
 
     return LayoutBuilder(builder: (context, constraints) {
+      if (constraints.maxWidth < Hud.compactWidth) {
+        return _compactStage(constraints.maxWidth, mediaCards, codes, nodes);
+      }
       final wide = constraints.maxWidth >= 980;
       return CustomPaint(
         painter: const _CockpitFramePainter(),
@@ -135,9 +138,48 @@ class HudStage extends StatelessWidget {
     });
   }
 
+  /// Phone portrait: the same cockpit, re-stacked. HUD strip rows scroll
+  /// sideways, the globe gets a near-square canopy, telemetry moves out of
+  /// the canopy into a 2×2 readout grid and the radar follows as a list.
+  Widget _compactStage(double width, List<SimCard> mediaCards,
+      List<String> codes, List<GlobeNode> nodes) {
+    final globeHeight = (width - 20).clamp(300.0, 440.0);
+    return CustomPaint(
+      key: const Key('hud-compact'),
+      painter: const _CockpitFramePainter(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 12, 10, 14),
+        child: Column(children: [
+          _HudStrip(
+            compact: true,
+            allCards: allCards,
+            mediaCards: mediaCards,
+            codes: codes,
+            mediaFilter: mediaFilter,
+            onMediaFilter: onMediaFilter,
+            selectedCountry: selectedCountry,
+            onSelectCountry: onSelectCountry,
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+              height: globeHeight, child: _globeArea(nodes, compact: true)),
+          const SizedBox(height: 10),
+          _Telemetry(
+              compact: true,
+              controller: controller,
+              nodes: nodes,
+              cards: filteredCards),
+          const SizedBox(height: 10),
+          _RadarDrawer(
+              cards: filteredCards, onCheckIn: onCheckIn, compact: true),
+        ]),
+      ),
+    );
+  }
+
   /// The globe stage. Zoomed globes paint past their layout box, so the
   /// whole stage is clipped to its frame and never covers the HUD strip.
-  Widget _globeArea(List<GlobeNode> nodes) {
+  Widget _globeArea(List<GlobeNode> nodes, {bool compact = false}) {
     final atlas = countries;
     return ClipRect(
         key: const Key('globe-stage'),
@@ -160,47 +202,62 @@ class HudStage extends StatelessWidget {
           const Positioned.fill(
               child:
                   IgnorePointer(child: CustomPaint(painter: _CanopyPainter()))),
-          Positioned(
-            left: 4,
-            top: 0,
-            child: IgnorePointer(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const HudLabel('World Card Atlas · Orthographic 3D'),
-                    const SizedBox(height: 6),
-                    GlassPanel(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      radius: 6,
-                      child: Text(
-                        atlas == null
-                            ? 'Natural Earth 110m TopoJSON'
-                            : 'Natural Earth 110m TopoJSON · ${atlas.length} 国 · '
-                                '${atlas.fold<int>(0, (s, c) => s + c.pointCount)} 顶点',
-                        style:
-                            Hud.mono.copyWith(fontSize: 10, color: Hud.muted),
-                      ),
-                    ),
-                  ]),
-            ),
-          ),
-          Positioned(
-            right: 4,
-            top: 0,
-            child: _Telemetry(
-                controller: controller, nodes: nodes, cards: filteredCards),
-          ),
-          Positioned(
+          if (compact)
+            const Positioned(
+                left: 6,
+                top: 4,
+                child: IgnorePointer(
+                    child: HudLabel('World Card Atlas · Orthographic 3D')))
+          else
+            Positioned(
               left: 4,
-              bottom: 0,
-              child: _GlobeControls(controller: controller)),
+              top: 0,
+              child: IgnorePointer(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const HudLabel('World Card Atlas · Orthographic 3D'),
+                      const SizedBox(height: 6),
+                      GlassPanel(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        radius: 6,
+                        child: Text(
+                          atlas == null
+                              ? 'Natural Earth 110m TopoJSON'
+                              : 'Natural Earth 110m TopoJSON · ${atlas.length} 国 · '
+                                  '${atlas.fold<int>(0, (s, c) => s + c.pointCount)} 顶点',
+                          style:
+                              Hud.mono.copyWith(fontSize: 10, color: Hud.muted),
+                        ),
+                      ),
+                    ]),
+              ),
+            ),
+          if (!compact)
+            Positioned(
+              right: 4,
+              top: 0,
+              child: _Telemetry(
+                  controller: controller, nodes: nodes, cards: filteredCards),
+            ),
+          if (compact)
+            Positioned(
+                right: 2,
+                bottom: 2,
+                child: _GlobeControls(controller: controller, compact: true))
+          else
+            Positioned(
+                left: 4,
+                bottom: 0,
+                child: _GlobeControls(controller: controller)),
         ]));
   }
 }
 
 class _HudStrip extends StatelessWidget {
   const _HudStrip({
+    this.compact = false,
     required this.allCards,
     required this.mediaCards,
     required this.codes,
@@ -217,10 +274,77 @@ class _HudStrip extends StatelessWidget {
   final ValueChanged<MediaType?> onMediaFilter;
   final String? selectedCountry;
   final ValueChanged<String?> onSelectCountry;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     int count(MediaType m) => allCards.where((c) => c.mediaType == m).length;
+    final media = [
+      HudPill(
+        key: const Key('media-all'),
+        label: '全部介质',
+        count: allCards.length,
+        selected: mediaFilter == null,
+        onTap: () => onMediaFilter(null),
+      ),
+      for (final m in MediaType.values)
+        HudPill(
+          key: Key('media-${m.name}'),
+          label: m.label,
+          count: count(m),
+          color: Hud.mediaColor(m),
+          selected: mediaFilter == m,
+          onTap: () => onMediaFilter(mediaFilter == m ? null : m),
+        ),
+    ];
+    final countries = [
+      HudPill(
+        key: const Key('country-all'),
+        label: 'ALL',
+        count: mediaCards.length,
+        color: Colors.white,
+        selected: selectedCountry == null,
+        onTap: () => onSelectCountry(null),
+      ),
+      for (final code in codes)
+        HudPill(
+          key: Key('country-$code'),
+          label: code,
+          count: mediaCards.where((c) => c.countryCode == code).length,
+          color: Hud.amber,
+          selected: selectedCountry == code,
+          onTap: () => onSelectCountry(code),
+        ),
+    ];
+    if (compact) {
+      Widget row(String label, List<Widget> pills, Key key) => Row(children: [
+            SizedBox(
+                width: 38,
+                child: Text(label,
+                    style: Hud.mono.copyWith(
+                        fontSize: 10, letterSpacing: 1.2, color: Hud.dim))),
+            Expanded(
+              child: SingleChildScrollView(
+                key: key,
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
+                  for (final p in pills)
+                    Padding(padding: const EdgeInsets.only(right: 2), child: p),
+                ]),
+              ),
+            ),
+          ]);
+      return GlassPanel(
+        key: const Key('hud-strip'),
+        padding: const EdgeInsets.fromLTRB(10, 2, 4, 2),
+        radius: 16,
+        child: Column(children: [
+          row('介质', media, const Key('media-row')),
+          Container(height: 1, color: Hud.glassEdge),
+          row('聚焦', countries, const Key('country-row')),
+        ]),
+      );
+    }
     return GlassPanel(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       radius: 999,
@@ -230,43 +354,8 @@ class _HudStrip extends StatelessWidget {
         runSpacing: 8,
         spacing: 12,
         children: [
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            HudPill(
-              key: const Key('media-all'),
-              label: '全部介质',
-              count: allCards.length,
-              selected: mediaFilter == null,
-              onTap: () => onMediaFilter(null),
-            ),
-            for (final m in MediaType.values)
-              HudPill(
-                key: Key('media-${m.name}'),
-                label: m.label,
-                count: count(m),
-                color: Hud.mediaColor(m),
-                selected: mediaFilter == m,
-                onTap: () => onMediaFilter(mediaFilter == m ? null : m),
-              ),
-          ]),
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            HudPill(
-              key: const Key('country-all'),
-              label: 'ALL',
-              count: mediaCards.length,
-              color: Colors.white,
-              selected: selectedCountry == null,
-              onTap: () => onSelectCountry(null),
-            ),
-            for (final code in codes)
-              HudPill(
-                key: Key('country-$code'),
-                label: code,
-                count: mediaCards.where((c) => c.countryCode == code).length,
-                color: Hud.amber,
-                selected: selectedCountry == code,
-                onTap: () => onSelectCountry(code),
-              ),
-          ]),
+          Wrap(spacing: 6, runSpacing: 6, children: media),
+          Wrap(spacing: 6, runSpacing: 6, children: countries),
         ],
       ),
     );
@@ -275,7 +364,12 @@ class _HudStrip extends StatelessWidget {
 
 class _Telemetry extends StatelessWidget {
   const _Telemetry(
-      {required this.controller, required this.nodes, required this.cards});
+      {required this.controller,
+      required this.nodes,
+      required this.cards,
+      this.compact = false});
+
+  final bool compact;
 
   final GlobeController controller;
   final List<GlobeNode> nodes;
@@ -312,6 +406,71 @@ class _Telemetry extends StatelessWidget {
                         color: color)),
               ]),
             );
+        final nearestText = nearest == null
+            ? '—'
+            : '${nearest.carrierName} · ${nearest.daysRemaining()}d';
+        final nearestColor =
+            nearest == null ? Colors.white : Hud.tierColor(nearest.urgency());
+        if (compact) {
+          Widget cell(String k, String v, {Color color = Colors.white}) =>
+              Expanded(
+                child: Container(
+                  margin: const EdgeInsets.all(3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0x66020617),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Hud.glassEdge),
+                  ),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(k,
+                            style: Hud.mono.copyWith(
+                                fontSize: 9.5,
+                                letterSpacing: 1.2,
+                                color: Hud.dim)),
+                        const SizedBox(height: 3),
+                        Text(v,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Hud.mono.copyWith(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: color)),
+                      ]),
+                ),
+              );
+          return GlassPanel(
+            key: const Key('telemetry'),
+            padding: const EdgeInsets.fromLTRB(9, 10, 9, 9),
+            radius: 16,
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Padding(
+                  padding: EdgeInsets.only(left: 4, bottom: 4),
+                  child: HudLabel('Telemetry')),
+              Row(children: [
+                cell('CENTER',
+                    '${formatLon(controller.centerLon)} ${formatLat(controller.centerLat)}'),
+                cell(
+                    'ZOOM',
+                    '${controller.zoom.toStringAsFixed(2)}x'
+                        '${controller.spinning ? ' · SPIN' : ''}'),
+              ]),
+              Row(children: [
+                cell('NODES', '$visible / ${nodes.length} · ${cards.length} 卡'),
+                cell(
+                    '最近到期',
+                    nearest == null
+                        ? '—'
+                        : '${nearest.daysRemaining()}d · ${nearest.carrierName}',
+                    color: nearestColor),
+              ]),
+            ]),
+          );
+        }
         return GlassPanel(
           key: const Key('telemetry'),
           padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
@@ -327,15 +486,7 @@ class _Telemetry extends StatelessWidget {
                     '${controller.spinning ? '  · AUTO-SPIN' : ''}'),
             row('NODES',
                 '$visible 可见 / ${nodes.length} 节点 · ${cards.length} 卡'),
-            row(
-              '最近到期',
-              nearest == null
-                  ? '—'
-                  : '${nearest.carrierName} · ${nearest.daysRemaining()}d',
-              color: nearest == null
-                  ? Colors.white
-                  : Hud.tierColor(nearest.urgency()),
-            ),
+            row('最近到期', nearestText, color: nearestColor),
           ]),
         );
       },
@@ -344,7 +495,9 @@ class _Telemetry extends StatelessWidget {
 }
 
 class _GlobeControls extends StatelessWidget {
-  const _GlobeControls({required this.controller});
+  const _GlobeControls({required this.controller, this.compact = false});
+
+  final bool compact;
 
   final GlobeController controller;
 
@@ -375,6 +528,40 @@ class _GlobeControls extends StatelessWidget {
                   ),
                 ),
               );
+          if (compact) {
+            Widget round(IconData icon, String tip, VoidCallback onTap,
+                    {Key? key, bool on = false}) =>
+                SizedBox.square(
+                  dimension: Hud.minTap,
+                  child: IconButton(
+                    key: key,
+                    tooltip: tip,
+                    onPressed: onTap,
+                    style: IconButton.styleFrom(
+                      backgroundColor: on
+                          ? Hud.sky.withValues(alpha: .22)
+                          : const Color(0x8C0B1222),
+                      side: const BorderSide(color: Hud.glassRim),
+                    ),
+                    icon: Icon(icon,
+                        size: 20, color: on ? Hud.sky : Colors.white),
+                  ),
+                );
+            return Column(mainAxisSize: MainAxisSize.min, children: [
+              round(controller.spinning ? Icons.pause : Icons.play_arrow,
+                  controller.spinning ? '暂停自转' : '开始自转', controller.toggleSpin,
+                  key: const Key('spin-toggle'), on: controller.spinning),
+              const SizedBox(height: 6),
+              round(Icons.add, '放大', () => controller.zoomBy(1.15),
+                  key: const Key('zoom-in')),
+              const SizedBox(height: 6),
+              round(Icons.remove, '缩小', () => controller.zoomBy(1 / 1.15),
+                  key: const Key('zoom-out')),
+              const SizedBox(height: 6),
+              round(Icons.center_focus_strong, '复位', controller.reset,
+                  key: const Key('globe-reset')),
+            ]);
+          }
           return GlassPanel(
             padding: const EdgeInsets.all(6),
             radius: 12,
@@ -392,7 +579,10 @@ class _GlobeControls extends StatelessWidget {
 }
 
 class _RadarDrawer extends StatelessWidget {
-  const _RadarDrawer({required this.cards, required this.onCheckIn});
+  const _RadarDrawer(
+      {required this.cards, required this.onCheckIn, this.compact = false});
+
+  final bool compact;
 
   final List<SimCard> cards;
   final ValueChanged<SimCard> onCheckIn;
@@ -404,6 +594,52 @@ class _RadarDrawer extends StatelessWidget {
     final p1 = cards.where((c) => c.urgency() == UrgencyTier.p1).length;
     final p2 = cards.where((c) => c.urgency() == UrgencyTier.p2).length;
     final monthly = cards.fold<double>(0, (s, c) => s + c.monthlyCny);
+    Widget radarItem(SimCard c) {
+      final tier = c.urgency();
+      final color = Hud.tierColor(tier);
+      return Container(
+        padding: EdgeInsets.fromLTRB(
+            10, compact ? 4 : 10, compact ? 2 : 10, compact ? 4 : 10),
+        decoration: BoxDecoration(
+          color: const Color(0x99020617),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: .06)),
+        ),
+        child: Row(children: [
+          Text(c.countryCode,
+              style: Hud.mono.copyWith(
+                  fontSize: 11, color: Hud.muted, fontWeight: FontWeight.w700)),
+          const SizedBox(width: 8),
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(c.carrierName,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w700)),
+              Text('${c.hostName} · ${c.slotDetail}',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: Hud.dim)),
+            ]),
+          ),
+          _Badge('${tier.code} · ${c.daysRemaining()}d', color),
+          const SizedBox(width: 6),
+          IconButton(
+            key: Key('radar-check-${c.id}'),
+            tooltip: '保号打卡',
+            visualDensity: compact ? null : VisualDensity.compact,
+            constraints: compact
+                ? const BoxConstraints.tightFor(
+                    width: Hud.minTap, height: Hud.minTap)
+                : const BoxConstraints(),
+            padding: const EdgeInsets.all(4),
+            onPressed: () => onCheckIn(c),
+            icon: const Icon(Icons.check, size: 18, color: Hud.emerald),
+          ),
+        ]),
+      );
+    }
+
     return GlassPanel(
       padding: const EdgeInsets.all(14),
       radius: 18,
@@ -419,63 +655,29 @@ class _RadarDrawer extends StatelessWidget {
         const Text('按保号死线排序 · P1≤15天 · P2≤60天',
             style: TextStyle(fontSize: 11, color: Hud.dim)),
         const SizedBox(height: 10),
-        Expanded(
-          child: sorted.isEmpty
-              ? const Center(
-                  child: Text('当前筛选无卡片', style: TextStyle(color: Hud.dim)))
-              : ListView.separated(
-                  itemCount: sorted.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (context, i) {
-                    final c = sorted[i];
-                    final tier = c.urgency();
-                    final color = Hud.tierColor(tier);
-                    return Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0x99020617),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: .06)),
-                      ),
-                      child: Row(children: [
-                        Text(c.countryCode,
-                            style: Hud.mono.copyWith(
-                                fontSize: 11,
-                                color: Hud.muted,
-                                fontWeight: FontWeight.w700)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(c.carrierName,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700)),
-                                Text('${c.hostName} · ${c.slotDetail}',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        fontSize: 11, color: Hud.dim)),
-                              ]),
-                        ),
-                        _Badge('${tier.code} · ${c.daysRemaining()}d', color),
-                        const SizedBox(width: 6),
-                        IconButton(
-                          tooltip: '保号打卡',
-                          visualDensity: VisualDensity.compact,
-                          constraints: const BoxConstraints(),
-                          padding: const EdgeInsets.all(4),
-                          onPressed: () => onCheckIn(c),
-                          icon: const Icon(Icons.check,
-                              size: 18, color: Hud.emerald),
-                        ),
-                      ]),
-                    );
-                  },
-                ),
-        ),
+        if (compact)
+          sorted.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                      child: Text('当前筛选无卡片', style: TextStyle(color: Hud.dim))))
+              : Column(children: [
+                  for (final c in sorted)
+                    Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: radarItem(c)),
+                ])
+        else
+          Expanded(
+            child: sorted.isEmpty
+                ? const Center(
+                    child: Text('当前筛选无卡片', style: TextStyle(color: Hud.dim)))
+                : ListView.separated(
+                    itemCount: sorted.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, i) => radarItem(sorted[i]),
+                  ),
+          ),
         const Divider(color: Hud.line),
         Text('月均成本 ¥${monthly.toStringAsFixed(2)} / 月',
             style: Hud.mono.copyWith(fontSize: 12, color: Hud.muted)),

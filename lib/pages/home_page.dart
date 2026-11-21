@@ -32,6 +32,9 @@ class _HomePageState extends State<HomePage> {
   late final SimRepository _repo = widget.repository ?? SimRepository();
   final _globe = GlobeController();
   final _search = TextEditingController();
+  final _mobileScroll = ScrollController();
+  final _sectionKeys = List.generate(3, (_) => GlobalKey());
+  int _section = 0;
 
   List<SimCard> _cards = [];
   bool _loading = true;
@@ -67,6 +70,7 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _globe.dispose();
     _search.dispose();
+    _mobileScroll.dispose();
     super.dispose();
   }
 
@@ -198,39 +202,293 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (Hud.isCompact(context)) return _mobileScaffold(filtered);
     return Scaffold(
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+          children: [
+            _header(),
+            const SizedBox(height: 18),
+            _hud(filtered),
+            const SizedBox(height: 18),
+            _bento(),
+            const SizedBox(height: 18),
+            _searchBar(filtered.length),
+            const SizedBox(height: 16),
+            _gallery(filtered),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _hud(List<SimCard> filtered) => HudStage(
+        allCards: _cards,
+        filteredCards: filtered,
+        countries: _countries,
+        atlasError: _atlasError,
+        controller: _globe,
+        mediaFilter: _mediaFilter,
+        onMediaFilter: (m) => setState(() => _mediaFilter = m),
+        selectedCountry: _country,
+        onSelectCountry: _selectCountry,
+        onGlobeCountryTap: _onGlobeCountry,
+        onCheckIn: _checkIn,
+      );
+
+  void _openBackup() => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BackupPage(
+          cards: _cards,
+          onImport: (cards) async {
+            if (!await _persist((_) => cards)) return false;
+            setState(() {
+              _country = null;
+              _slot = null;
+            });
+            return true;
+          },
+        ),
+      ));
+
+  // ---------------------------------------------------------------------------
+  // Phone portrait presentation: a dedicated layout, not the desktop page
+  // scaled down. One scrolling column split into three sections (Atlas /
+  // Bento / Cards) with a floating glass dock that jumps between them and
+  // hosts the primary "new SIM" action within thumb reach.
+  // ---------------------------------------------------------------------------
+
+  static const _sections = [
+    (Icons.public, '地球'),
+    (Icons.grid_view_rounded, '概览'),
+    (Icons.style_outlined, '卡库'),
+  ];
+
+  Widget _mobileScaffold(List<SimCard> filtered) {
+    final mq = MediaQuery.of(context);
+    final keyboardOpen = mq.viewInsets.bottom > 0;
+    final dockSpace = 64 + 12 + mq.viewPadding.bottom;
+    Widget section(int i, Widget child) =>
+        KeyedSubtree(key: _sectionKeys[i], child: child);
+    return Scaffold(
+      body: Stack(children: [
+        SafeArea(
+          bottom: false,
+          child: NotificationListener<ScrollUpdateNotification>(
+            onNotification: (_) {
+              _syncSection();
+              return false;
+            },
+            child: SingleChildScrollView(
+              key: const Key('mobile-scroll'),
+              controller: _mobileScroll,
+              padding: EdgeInsets.fromLTRB(
+                  12, 8, 12, keyboardOpen ? 16 : dockSpace + 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _header(),
-                  const SizedBox(height: 18),
-                  HudStage(
-                    allCards: _cards,
-                    filteredCards: filtered,
-                    countries: _countries,
-                    atlasError: _atlasError,
-                    controller: _globe,
-                    mediaFilter: _mediaFilter,
-                    onMediaFilter: (m) => setState(() => _mediaFilter = m),
-                    selectedCountry: _country,
-                    onSelectCountry: _selectCountry,
-                    onGlobeCountryTap: _onGlobeCountry,
-                    onCheckIn: _checkIn,
-                  ),
-                  const SizedBox(height: 18),
-                  _bento(),
-                  const SizedBox(height: 18),
-                  _searchBar(filtered.length),
-                  const SizedBox(height: 16),
-                  _gallery(filtered),
+                  section(
+                      0,
+                      Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _mobileHeader(),
+                            const SizedBox(height: 10),
+                            _hud(filtered),
+                          ])),
+                  const SizedBox(height: 22),
+                  section(
+                      1,
+                      Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _sectionTitle('Bento · 概览', '${_cards.length} 张卡'),
+                            _bento(),
+                          ])),
+                  const SizedBox(height: 22),
+                  section(
+                      2,
+                      Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _sectionTitle('Card Vault · 卡库',
+                                '${filtered.length} / ${_cards.length}'),
+                            _searchBar(filtered.length),
+                            const SizedBox(height: 14),
+                            _gallery(filtered),
+                          ])),
                 ],
               ),
             ),
+          ),
+        ),
+        if (!keyboardOpen)
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12 + mq.viewPadding.bottom,
+            child: _dock(),
+          ),
+      ]),
     );
   }
+
+  void _syncSection() {
+    var current = 0;
+    for (var i = 0; i < _sectionKeys.length; i++) {
+      final box = _sectionKeys[i].currentContext?.findRenderObject();
+      if (box is RenderBox &&
+          box.attached &&
+          box.localToGlobal(Offset.zero).dy <= 200) {
+        current = i;
+      }
+    }
+    if (current != _section) setState(() => _section = current);
+  }
+
+  void _jumpTo(int i) {
+    final ctx = _sectionKeys[i].currentContext;
+    setState(() => _section = i);
+    if (i == 0) {
+      _mobileScroll.animateTo(0,
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic);
+    } else if (ctx != null) {
+      Scrollable.ensureVisible(ctx,
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic);
+    }
+  }
+
+  Widget _sectionTitle(String title, String meta) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+        child: Row(children: [
+          Container(
+              width: 3,
+              height: 14,
+              decoration: BoxDecoration(
+                  color: Hud.sky, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(width: 8),
+          Expanded(child: HudLabel(title, color: Colors.white)),
+          Text(meta, style: Hud.mono.copyWith(fontSize: 11, color: Hud.dim)),
+        ]),
+      );
+
+  Widget _mobileHeader() => Row(children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(color: Hud.sky.withValues(alpha: .5)),
+            color: Hud.sky.withValues(alpha: .12),
+          ),
+          child: const Icon(Icons.public, color: Hud.sky, size: 20),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const Flexible(
+                child: Text('SIMVault',
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: Hud.sky.withValues(alpha: .5))),
+                child: Text('v3.2',
+                    style: Hud.mono.copyWith(fontSize: 9.5, color: Hud.sky)),
+              ),
+            ]),
+            Text('WORLD CARD ATLAS · LOCAL-FIRST',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Hud.mono
+                    .copyWith(fontSize: 9.5, letterSpacing: 1, color: Hud.dim)),
+          ]),
+        ),
+        IconButton(
+          key: const Key('export-all-ics'),
+          tooltip: '导出全部 ICS',
+          onPressed: () => _exportIcs(_cards, 'SIMVault_all_deadlines.ics'),
+          icon: const Icon(Icons.event_outlined, color: Hud.muted),
+        ),
+        IconButton(
+          key: const Key('open-backup'),
+          tooltip: 'JSON 备份',
+          onPressed: _openBackup,
+          icon: const Icon(Icons.data_object, color: Hud.muted),
+        ),
+      ]);
+
+  Widget _dock() => GlassPanel(
+        key: const Key('mobile-dock'),
+        radius: 22,
+        padding: const EdgeInsets.all(6),
+        tint: const Color(0xD90B1222),
+        child: SizedBox(
+          height: 52,
+          child: Row(children: [
+            for (var i = 0; i < _sections.length; i++)
+              Expanded(
+                child: InkWell(
+                  key: Key('dock-$i'),
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => _jumpTo(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: _section == i
+                          ? Hud.sky.withValues(alpha: .14)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                          color: _section == i
+                              ? Hud.sky.withValues(alpha: .35)
+                              : Colors.transparent),
+                    ),
+                    child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(_sections[i].$1,
+                              size: 20,
+                              color: _section == i ? Hud.sky : Hud.muted),
+                          const SizedBox(height: 2),
+                          Text(_sections[i].$2,
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: _section == i ? Hud.sky : Hud.muted)),
+                        ]),
+                  ),
+                ),
+              ),
+            const SizedBox(width: 6),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                key: const Key('add-card'),
+                style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16))),
+                onPressed: () => _openForm(),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('新增'),
+              ),
+            ),
+          ]),
+        ),
+      );
 
   Widget _header() => Wrap(
         alignment: WrapAlignment.spaceBetween,
@@ -278,19 +536,7 @@ class _HomePageState extends State<HomePage> {
             ),
             OutlinedButton.icon(
               key: const Key('open-backup'),
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => BackupPage(
-                  cards: _cards,
-                  onImport: (cards) async {
-                    if (!await _persist((_) => cards)) return false;
-                    setState(() {
-                      _country = null;
-                      _slot = null;
-                    });
-                    return true;
-                  },
-                ),
-              )),
+              onPressed: _openBackup,
               icon: const Icon(Icons.data_object, size: 16),
               label: const Text('JSON 备份'),
             ),
@@ -382,7 +628,11 @@ class _HomePageState extends State<HomePage> {
         ],
       ]),
       _BentoTile(children: [
-        const HudLabel('03 / Cost Engine (CNY)', color: Hud.emerald),
+        HudLabel(
+            Hud.isCompact(context)
+                ? '03 / Cost · CNY'
+                : '03 / Cost Engine (CNY)',
+            color: Hud.emerald),
         const SizedBox(height: 10),
         Text('¥${monthly.toStringAsFixed(2)}',
             style:
@@ -402,6 +652,7 @@ class _HomePageState extends State<HomePage> {
         key: const Key('estk-bento'),
         children: [
           EstkMatrixCard(
+            compact: Hud.isCompact(context),
             layout: layout,
             selectedSlot: _slot,
             onSelectSlot: (n) => setState(() => _slot = n),
@@ -411,6 +662,23 @@ class _HomePageState extends State<HomePage> {
       ),
     ];
 
+    if (Hud.isCompact(context)) {
+      // Phone bento: two small stat tiles side by side, the deadline and the
+      // 15-slot matrix full width, every tile sized by its own content.
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(child: tiles[0]),
+            const SizedBox(width: 10),
+            Expanded(child: tiles[2]),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        tiles[1],
+        const SizedBox(height: 10),
+        tiles[3],
+      ]);
+    }
     return LayoutBuilder(builder: (context, c) {
       final cols = c.maxWidth >= 1200 ? 4 : (c.maxWidth >= 640 ? 2 : 1);
       final w = (c.maxWidth - 14 * (cols - 1)) / cols;
@@ -509,8 +777,10 @@ class _BentoTile extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(16),
+  Widget build(BuildContext context) => CustomPaint(
+      foregroundPainter: const GlassRimPainter(radius: 18),
+      child: Container(
+        padding: EdgeInsets.all(Hud.isCompact(context) ? 14 : 16),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
@@ -519,8 +789,9 @@ class _BentoTile extends StatelessWidget {
           ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: Hud.line),
+          boxShadow: Hud.glassShadow,
         ),
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: children),
-      );
+      ));
 }

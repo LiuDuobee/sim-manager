@@ -152,7 +152,7 @@ class FlipSimCardState extends State<FlipSimCard>
               child: ClipPath(
                 clipper: const ChamferClipper(),
                 child: Container(
-                  height: 270,
+                  height: Hud.isCompact(context) ? 336 : 270,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
@@ -233,22 +233,42 @@ class _Tag extends StatelessWidget {
 
 Widget _smallButton(String label, VoidCallback onTap,
         {Key? key, Color color = Colors.white}) =>
-    InkWell(
-      key: key,
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: .35),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withValues(alpha: .35)),
-        ),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 11, color: color, fontWeight: FontWeight.w600)),
+    _SmallButton(label, onTap, key: key, color: color);
+
+/// Card action chip. On phones the visible chip stays compact but the touch
+/// target grows to at least 48×48dp.
+class _SmallButton extends StatelessWidget {
+  const _SmallButton(this.label, this.onTap,
+      {super.key, this.color = Colors.white});
+
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = Hud.isCompact(context);
+    final chip = Container(
+      padding: EdgeInsets.symmetric(
+          horizontal: compact ? 12 : 10, vertical: compact ? 8 : 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: .35),
+        borderRadius: BorderRadius.circular(compact ? 10 : 8),
+        border: Border.all(color: color.withValues(alpha: .35)),
       ),
+      child: Text(label,
+          style: TextStyle(
+              fontSize: compact ? 12 : 11,
+              color: color,
+              fontWeight: FontWeight.w600)),
     );
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: TapTarget(enabled: compact, child: chip),
+    );
+  }
+}
 
 class _Front extends StatelessWidget {
   const _Front(
@@ -295,16 +315,23 @@ class _Front extends StatelessWidget {
       const SizedBox(height: 14),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SimChip(),
-        const Spacer(),
-        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(card.phoneNumber.isEmpty ? '未录入号码' : card.phoneNumber,
-              style:
-                  Hud.mono.copyWith(fontSize: 19, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 2),
-          Text(
-              '余额 ${card.balance.toStringAsFixed(card.balance % 1 == 0 ? 0 : 2)} ${card.currency} · ≈ ¥${card.monthlyCny.toStringAsFixed(1)}/月',
-              style: Hud.mono.copyWith(fontSize: 10.5, color: Hud.muted)),
-        ]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.topRight,
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(card.phoneNumber.isEmpty ? '未录入号码' : card.phoneNumber,
+                  style: Hud.mono
+                      .copyWith(fontSize: 19, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 2),
+              Text(
+                  '余额 ${card.balance.toStringAsFixed(card.balance % 1 == 0 ? 0 : 2)} ${card.currency} · ≈ ¥${card.monthlyCny.toStringAsFixed(1)}/月',
+                  style: Hud.mono.copyWith(fontSize: 10.5, color: Hud.muted)),
+            ]),
+          ),
+        ),
       ]),
       const SizedBox(height: 12),
       Wrap(spacing: 6, runSpacing: 4, children: [
@@ -412,7 +439,7 @@ class _Back extends StatelessWidget {
               ? '尚未打卡'
               : '${DateFormat('yyyy-MM-dd').format(last)} · 共 ${card.keepAliveLog.length} 次记录'),
       const Spacer(),
-      Wrap(spacing: 6, runSpacing: 6, children: [
+      Wrap(spacing: 6, runSpacing: Hud.isCompact(context) ? 0 : 6, children: [
         _smallButton('保号打卡', onCheckIn,
             key: Key('back-checkin-${card.id}'), color: Hud.emerald),
         _smallButton('导出 .ics', onExportIcs,
