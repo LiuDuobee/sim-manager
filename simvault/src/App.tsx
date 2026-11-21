@@ -29,7 +29,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { cardDb, createBlankCard, seedCards, type SimCard } from './db'
+import { cardDb, createBlankCard, newCardId, seedCards, type SimCard } from './db'
 import { GlobeAtlas } from './GlobeAtlas'
 import './index.css'
 
@@ -140,7 +140,13 @@ function App() {
     try {
       const imported = JSON.parse(await file.text()) as SimCard[]
       if (!Array.isArray(imported)) throw new Error('invalid')
-      await persist(imported)
+      const seen = new Set<string>()
+      const unique = imported.map((card) => {
+        const id = card.id && !seen.has(card.id) ? card.id : newCardId()
+        seen.add(id)
+        return id === card.id ? card : { ...card, id }
+      })
+      await persist(unique)
       setNotice(`已导入 ${imported.length} 张卡片`)
     } catch {
       setNotice('导入失败：JSON 文件格式不正确')

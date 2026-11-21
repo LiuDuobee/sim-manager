@@ -50,7 +50,7 @@ const dateFromNow = (days: number) => {
   return date.toISOString()
 }
 
-const newCardId = () =>
+export const newCardId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
