@@ -1133,11 +1133,24 @@ class _HomePageState extends State<HomePage> {
               TextButton(
                   key: const Key('empty-samples'),
                   onPressed: () =>
-                      _persist((_) => buildSeedCards(DateTime.now())),
+                      _persist((_) => _freshSamples()),
                   child: const Text('载入示例卡')),
             ]),
       ]),
     );
+  }
+
+  /// Sample cards with ids that don't collide with archived cards, so
+  /// reloading samples never hides an archived card's history.
+  List<SimCard> _freshSamples() {
+    final now = DateTime.now();
+    final taken = {for (final c in _archive) c.id};
+    return [
+      for (final c in buildSeedCards(now))
+        taken.contains(c.id)
+            ? c.copyWith(id: '${c.id}-${now.microsecondsSinceEpoch}')
+            : c
+    ];
   }
 
   /// Phone wallet mode: one card pulled out, the rest stacked as 56dp strips
