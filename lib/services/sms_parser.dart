@@ -89,11 +89,14 @@ ParsedSms parseRenewalSms(String text, {DateTime? now}) {
 
 const _balanceWords = ['余额', '餘額', 'balance', '残高', 'ยอดคงเหลือ', 'remaining'];
 
+final _clauseBreak = RegExp(r'[，,。;；!！\n]|\.\s');
+
 (double?, String?) _amount(String text) {
   // Whole numbers only: thousands separators (1,000.00) are allowed; a
   // number is never cut out of a longer one.
+  // A comma followed by 1–2 digits is a decimal comma (€10,50).
   const num =
-      r'(?<![\d.,])(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)(?![\d,]*\d)';
+      r'(?<![\d.,])(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?![\d,]*\d)';
   final symbols = _currencySymbols.keys.map(RegExp.escape).join('|');
   final codes = _codes.join('|');
   // Symbol / code before the number: £10, HK$ 100, USD 3.
@@ -103,12 +106,18 @@ const _balanceWords = ['余额', '餘額', 'balance', '残高', 'ยอดคง
   final found = <(int, double, String)>[];
   for (final (re, numGroup, curGroup) in [(before, 2, 1), (after, 1, 2)]) {
     for (final m in re.allMatches(text)) {
-      final value = double.tryParse(m.group(numGroup)!.replaceAll(',', ''));
+      final raw = m.group(numGroup)!;
+      final value = double.tryParse(RegExp(r'^\d+,\d{1,2}$').hasMatch(raw)
+          ? raw.replaceAll(',', '.')
+          : raw.replaceAll(',', ''));
       if (value == null || !value.isFinite || value < 0) continue;
       // Skip the account balance ("余额 120 元", "balance is $25").
-      final lead = text
+      var lead = text
           .substring(m.start < 14 ? 0 : m.start - 14, m.start)
           .toLowerCase();
+      // Only within the same clause: "余额120元，充值成功￥50" keeps ¥50.
+      final cut = _clauseBreak.allMatches(lead).lastOrNull;
+      if (cut != null) lead = lead.substring(cut.end);
       if (_balanceWords.any(lead.contains)) continue;
       found.add((m.start, value, _currencyOf(m.group(curGroup)!)));
     }
