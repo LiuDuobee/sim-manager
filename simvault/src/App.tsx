@@ -29,7 +29,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { cardDb, seedCards, type SimCard } from './db'
+import { cardDb, createBlankCard, newCardId, seedCards, type SimCard } from './db'
 import { GlobeAtlas } from './GlobeAtlas'
 import './index.css'
 
@@ -107,8 +107,10 @@ function App() {
 
   const persist = async (next: SimCard[]) => {
     setCards(next)
-    await cardDb.cards.clear()
-    await cardDb.cards.bulkAdd(next)
+    await cardDb.transaction('rw', cardDb.cards, async () => {
+      await cardDb.cards.clear()
+      await cardDb.cards.bulkPut(next)
+    })
   }
 
   const filtered = useMemo(() => cards.filter((card) => {
@@ -138,7 +140,13 @@ function App() {
     try {
       const imported = JSON.parse(await file.text()) as SimCard[]
       if (!Array.isArray(imported)) throw new Error('invalid')
-      await persist(imported)
+      const seen = new Set<string>()
+      const unique = imported.map((card) => {
+        const id = card.id && !seen.has(card.id) ? card.id : newCardId()
+        seen.add(id)
+        return { ...createBlankCard(), ...card, id }
+      })
+      await persist(unique)
       setNotice(`已导入 ${imported.length} 张卡片`)
     } catch {
       setNotice('导入失败：JSON 文件格式不正确')
@@ -311,8 +319,16 @@ function TableView({ cards, onCheckIn, onEdit }: { cards: SimCard[]; onCheckIn: 
 }
 
 function CardForm({ initial, onClose, onSave }: { initial: SimCard | null; onClose: () => void; onSave: (card: SimCard) => Promise<void> }) {
-  const [form, setForm] = useState<SimCard>(initial || seedCards[0])
-  const update = (key: keyof SimCard, value: string | number) => setForm((current) => ({ ...current, [key]: value }))
+  const [form, setForm] = useState<SimCard>(() => initial || createBlankCard())
+  const update = (key: keyof SimCard, value: string | number) => setForm((current) => {
+    const next = { ...current, [key]: value }
+    if (!initial && key === 'keepAliveCycleDays') {
+      const deadline = new Date(next.lastKeepAliveDate)
+      deadline.setDate(deadline.getDate() + Number(value))
+      next.nextDeadlineDate = deadline.toISOString()
+    }
+    return next
+  })
   return <div className="modal-backdrop" onClick={onClose}><motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="modal" onClick={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">CARD EDITOR</p><h2>{initial ? '编辑卡片' : '收入新卡'}</h2></div><button className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="form-grid"><label>运营商<input value={form.carrierName} onChange={(event) => update('carrierName', event.target.value)} /></label><label>手机号<input value={form.phoneNumber} onChange={(event) => update('phoneNumber', event.target.value)} /></label><label>国家代码<input value={form.countryCode} maxLength={2} onChange={(event) => update('countryCode', event.target.value.toUpperCase())} /></label><label>套餐名称<input value={form.planName} onChange={(event) => update('planName', event.target.value)} /></label><label>余额<input type="number" value={form.balance} onChange={(event) => update('balance', Number(event.target.value))} /></label><label>币种<select value={form.currency} onChange={(event) => update('currency', event.target.value)}>{['CNY', 'HKD', 'GBP', 'USD', 'JPY'].map((item) => <option key={item}>{item}</option>)}</select></label><label>存放位置<input value={form.hostName} onChange={(event) => update('hostName', event.target.value)} /></label><label>卡槽详情<input value={form.slotDetail} onChange={(event) => update('slotDetail', event.target.value)} /></label><label>保号周期（天）<input type="number" value={form.keepAliveCycleDays} onChange={(event) => update('keepAliveCycleDays', Number(event.target.value))} /></label><label>保号动作<input value={form.keepAliveAction} onChange={(event) => update('keepAliveAction', event.target.value)} /></label></div><div className="modal-footer"><span><Tag size={15} /> 本地 IndexedDB 存储</span><button className="primary-button" onClick={() => onSave(form)}><Check size={17} /> 保存卡片</button></div></motion.div></div>
 }
 

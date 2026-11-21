@@ -50,6 +50,15 @@ const dateFromNow = (days: number) => {
   return date.toISOString()
 }
 
+export const newCardId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+
+export const createBlankCard = (): SimCard => ({
+  id: newCardId(), phoneNumber: '', carrierName: '', countryCode: '', cardType: 'Physical', themeColor: 'ocean', locationType: 'Device', hostName: '', slotDetail: '', isActive: true, planName: '', balance: 0, currency: 'CNY', billingCycle: 'Monthly', cycleCost: 0, cnyMonthlyEstimate: 0, keepAliveCycleDays: 180, keepAliveAction: '', lastKeepAliveDate: dateFromNow(0), nextDeadlineDate: dateFromNow(180), iccid: '', pin1: '', puk1: '', esimLpaCode: '', boundServices: [], notes: '', keepAliveLog: [],
+})
+
 export const seedCards: SimCard[] = [
   { id: 'cn-mobile', phoneNumber: '+86 138 0013 8000', carrierName: '中国移动', countryCode: 'CN', cardType: 'Physical', themeColor: 'ocean', locationType: 'Device', hostName: 'iPhone 主卡', slotDetail: 'Slot 1', isActive: true, planName: '8 元保号', balance: 42.8, currency: 'CNY', billingCycle: 'Monthly', cycleCost: 8, cnyMonthlyEstimate: 8, keepAliveCycleDays: 180, keepAliveAction: '发送 1 条短信', lastKeepAliveDate: dateFromNow(-154), nextDeadlineDate: dateFromNow(26), iccid: '898600F31023 0000 1234', pin1: '1234', puk1: '12345678', esimLpaCode: '', boundServices: ['Telegram', '银行卡'], notes: '家人副卡，低频使用', keepAliveLog: [] },
   { id: 'giffgaff', phoneNumber: '+44 7400 123456', carrierName: 'giffgaff', countryCode: 'GB', cardType: 'eSIM', themeColor: 'sunset', locationType: 'Device', hostName: 'iPhone 副卡', slotDetail: 'eSIM Profile #2', isActive: false, planName: 'Pay As You Go', balance: 15.2, currency: 'GBP', billingCycle: 'PayGo', cycleCost: 0, cnyMonthlyEstimate: 0, keepAliveCycleDays: 180, keepAliveAction: '流量变动或发送短信', lastKeepAliveDate: dateFromNow(-38), nextDeadlineDate: dateFromNow(142), iccid: '8944112345678901234', pin1: '0000', puk1: '87654321', esimLpaCode: 'LPA:1$prod.giffgaff.com$A1B2C3D4', boundServices: ['Google', 'Apple ID (UK)'], notes: '英国旅行卡', keepAliveLog: [] },
