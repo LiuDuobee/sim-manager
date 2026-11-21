@@ -559,16 +559,23 @@ class _HomePageState extends State<HomePage> {
           onImport: (all, media) async {
             // A pre-v3.4 backup has no medium list: keep the current one.
             final nextMedia = reconcileMedia(media ?? _media, all);
+            final previousMedia = _media;
+            // Media first: a failure aborts the import before any card is
+            // replaced, so cards never land on stale medium definitions.
+            try {
+              await _repo.saveMedia(nextMedia);
+            } on Object catch (e) {
+              _toast('载体列表保存失败，未导入: $e');
+              return false;
+            }
             if (!await _persistBoth((_, __) => (
                   all.where((c) => c.archivedAt == null).toList(),
                   all.where((c) => c.archivedAt != null).toList(),
                 ))) {
+              try {
+                await _repo.saveMedia(previousMedia);
+              } on Object catch (_) {}
               return false;
-            }
-            try {
-              await _repo.saveMedia(nextMedia);
-            } on Object catch (e) {
-              _toast('卡片已导入，但载体列表保存失败: $e');
             }
             setState(() {
               _country = null;
