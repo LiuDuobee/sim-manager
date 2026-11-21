@@ -94,6 +94,7 @@ class _AtlasGlobeState extends State<AtlasGlobe>
   double _lastScale = 1, _travel = 0;
   int _pointers = 0, _maxPointers = 0, _lastCount = 0;
   Offset _downAt = Offset.zero;
+  bool _primary = false;
 
   void _handleTap(Offset local, Size size) {
     final projection = projectionFor(widget.controller, size);
@@ -126,12 +127,16 @@ class _AtlasGlobeState extends State<AtlasGlobe>
             _maxPointers = 0;
             _travel = 0;
             _downAt = e.localPosition;
+            _primary = e.buttons == kPrimaryButton;
           }
           _maxPointers = math.max(_maxPointers, _pointers);
         },
         onPointerMove: (e) => _travel += e.delta.distance,
         onPointerUp: (e) {
-          if (--_pointers == 0 && _maxPointers == 1 && _travel < kTouchSlop) {
+          if (--_pointers == 0 &&
+              _primary &&
+              _maxPointers == 1 &&
+              _travel < kTouchSlop) {
             _handleTap(_downAt, size);
           }
         },
