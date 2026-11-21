@@ -661,8 +661,16 @@ class _SimFormPageState extends State<SimFormPage> {
                       KeyedSubtree(
                         key: ValueKey(_media),
                         child: _dropdown('载体类型', _media, MediaType.values,
-                            (m) => m.mediumLabel, (m) => _media = m,
-                            key: const Key('field-media')),
+                            (m) => m.mediumLabel, (m) {
+                          _media = m;
+                          // A carrier SIM has no slot: drop the medium.
+                          if (m == MediaType.physical) {
+                            _mediumId = null;
+                            if (_location == LocationType.smartCard) {
+                              _location = LocationType.device;
+                            }
+                          }
+                        }, key: const Key('field-media')),
                       ),
                       SizedBox(
                         width: _w,
@@ -675,8 +683,11 @@ class _SimFormPageState extends State<SimFormPage> {
                     ]),
                     if (_kind.hasDataPlan) section('流量套餐', _dataPlanFields()),
                     section('存放位置 / 载体槽位', [
-                      _dropdown('存放位置', _location, LocationType.values,
-                          (l) => l.label, (l) => _location = l),
+                      KeyedSubtree(
+                        key: ValueKey(_location),
+                        child: _dropdown('存放位置', _location, LocationType.values,
+                            (l) => l.label, (l) => _location = l),
+                      ),
                       KeyedSubtree(
                         key: ValueKey('medium-${_effectiveMediumId ?? ''}'),
                         child: _dropdown<String>(
