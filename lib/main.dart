@@ -52,7 +52,7 @@ class _SimVaultAppState extends State<SimVaultApp> {
         child: ValueListenableBuilder<ThemeMode>(
           valueListenable: _themeMode,
           builder: (context, mode, _) => MaterialApp(
-            title: 'SIMVault v3.3 · World Card Atlas',
+            title: 'SIMVault v3.4 · World Card Atlas',
             debugShowCheckedModeBanner: false,
             themeMode: mode,
             theme: buildHudTheme(HudPalette.light),

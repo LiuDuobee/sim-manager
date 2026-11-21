@@ -764,7 +764,7 @@ class _HomePageState extends State<HomePage> {
                     borderRadius: BorderRadius.circular(5),
                     border: Border.all(
                         color: context.hud.sky.withValues(alpha: .5))),
-                child: Text('v3.3',
+                child: Text('v3.4',
                     style: Hud.mono
                         .copyWith(fontSize: 9.5, color: context.hud.sky)),
               ),
@@ -905,7 +905,7 @@ class _HomePageState extends State<HomePage> {
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
                           color: context.hud.sky.withValues(alpha: .5))),
-                  child: Text('v3.3 WORLD CARD ATLAS',
+                  child: Text('v3.4 WORLD CARD ATLAS',
                       style: Hud.mono
                           .copyWith(fontSize: 10, color: context.hud.sky)),
                 ),
