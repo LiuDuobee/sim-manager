@@ -1,11 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sim_manager/features/cards/flip_sim_card.dart';
+import 'package:sim_manager/features/globe/globe_controller.dart';
 import 'package:sim_manager/features/globe/topojson.dart';
+import 'package:sim_manager/features/hud/hud_stage.dart';
 import 'package:sim_manager/main.dart';
 import 'package:sim_manager/pages/home_page.dart';
 import 'package:sim_manager/services/sim_repository.dart';
@@ -14,8 +20,23 @@ void main() {
   final atlas = decodeWorldAtlas(
       File('assets/geo/countries-110m.json').readAsStringSync());
 
-  Future<void> pumpHome(WidgetTester tester, {SimRepository? repo}) async {
-    tester.view.physicalSize = const Size(1600, 3000);
+  Future<({ByteData rgba, int width, int height})> screenPixels(
+      WidgetTester tester) async {
+    final boundary = tester.renderObject<RenderRepaintBoundary>(find
+        .ancestor(
+            of: find.byType(HudStage), matching: find.byType(RepaintBoundary))
+        .last);
+    expect(boundary.localToGlobal(Offset.zero), Offset.zero);
+    return (await tester.runAsync(() async {
+      final image = await boundary.toImage();
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      return (rgba: data!, width: image.width, height: image.height);
+    }))!;
+  }
+
+  Future<void> pumpHome(WidgetTester tester,
+      {SimRepository? repo, Size size = const Size(1600, 3000)}) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(SimVaultApp(
@@ -79,6 +100,59 @@ void main() {
             matching: find.byType(Transform))
         .first);
     expect(mirror.transform.storage[0], closeTo(-1, 1e-9)); // pre-rotated π
+  });
+
+  testWidgets('wheel zoom is clamped to 1.0x-2.0x and stays inside the stage',
+      (tester) async {
+    // Short window so the page itself is scrollable behind the globe.
+    await pumpHome(tester, size: const Size(1600, 1000));
+    final c = tester.widget<HudStage>(find.byType(HudStage)).controller;
+    c.spinning = false;
+    final globe = find.byKey(const Key('atlas-globe'));
+    final pointer = TestPointer(1, PointerDeviceKind.mouse)
+      ..hover(tester.getCenter(globe));
+    Future<void> wheel(double dy, int times) async {
+      for (var i = 0; i < times; i++) {
+        await tester.sendEventToBinding(pointer.scroll(Offset(0, dy)));
+      }
+      await tester.pump();
+    }
+
+    final globeTop = tester.getTopLeft(globe);
+    await wheel(100, 10);
+    expect(tester.getTopLeft(globe), globeTop, reason: 'page must not scroll');
+    expect(c.zoom, GlobeController.minZoom);
+    expect(c.zoom, 1.0);
+    final atMin = await screenPixels(tester);
+
+    await wheel(-100, 20);
+    expect(c.zoom, GlobeController.maxZoom);
+    expect(c.zoom, 2.0);
+    final atMax = await screenPixels(tester);
+
+    final stage = tester.getRect(find.byKey(const Key('globe-stage')));
+    expect(tester.getRect(globe), stage);
+    // At 2.0x the sphere is far larger than the stage, so only the clip keeps
+    // it inside: every pixel outside the stage (HUD strip with the media
+    // filter pills, radar drawer, frame) must be identical to 1.0x.
+    final radius = stage.shortestSide * 0.42 * c.zoom;
+    expect(radius * 2, greaterThan(stage.height));
+    expect(stage.overlaps(tester.getRect(find.byKey(const Key('media-all')))),
+        isFalse);
+    var diff = 0;
+    for (var y = 0; y < atMax.height; y++) {
+      for (var x = 0; x < atMax.width; x++) {
+        if (stage.contains(Offset(x + .5, y + .5))) continue;
+        final i = (y * atMax.width + x) * 4;
+        for (var k = 0; k < 4; k++) {
+          if (atMax.rgba.getUint8(i + k) != atMin.rgba.getUint8(i + k)) {
+            diff++;
+            break;
+          }
+        }
+      }
+    }
+    expect(diff, 0, reason: 'globe pixels leaked outside the stage');
   });
 
   testWidgets('overlapping check-ins both persist', (tester) async {

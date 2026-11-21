@@ -17,7 +17,10 @@ class GlobeController extends ChangeNotifier {
 
   static const flyDuration = Duration(milliseconds: 650);
   static const spinDegreesPerSecond = 6.0;
-  static const minZoom = 0.6, maxZoom = 2.6;
+
+  /// Wheel / button zoom range. Above 1.0x the sphere is larger than the
+  /// stage; the HUD stage clips it to its frame (see `HudStage`).
+  static const minZoom = 1.0, maxZoom = 2.0;
 
   double centerLon;
   double centerLat;

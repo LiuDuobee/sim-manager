@@ -117,7 +117,11 @@ class _AtlasGlobeState extends State<AtlasGlobe>
       return Listener(
         onPointerSignal: (event) {
           if (event is PointerScrollEvent) {
-            c.zoomBy(event.scrollDelta.dy > 0 ? 0.9 : 1.1);
+            // Claim the wheel so the page behind the globe does not scroll.
+            GestureBinding.instance.pointerSignalResolver.register(
+                event,
+                (e) => c.zoomBy(
+                    (e as PointerScrollEvent).scrollDelta.dy > 0 ? 0.9 : 1.1));
           }
         },
         child: MouseRegion(
