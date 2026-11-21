@@ -151,6 +151,19 @@ void main() {
     }
   });
 
+  test('passport edit diff names the new fields', () {
+    final a = card('a');
+    final b = a.copyWith(
+        planType: PlanType.postpaid,
+        keepAliveEnabled: false,
+        kind: CardKind.travel,
+        source: 'Airalo',
+        dataUnlimited: true,
+        planDays: () => 7);
+    expect(describeEdit(a, b),
+        ['预付/上台', '保号规则开关', '用途类型', '来源平台', '总流量', '套餐有效期']);
+  });
+
   group('accent stripe contrast', () {
     test('every region accent keeps ≥ 3:1 on card face and both themes', () {
       for (final r in [...allRegions, regionFor('ZZ')]) {

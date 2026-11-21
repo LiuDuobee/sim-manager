@@ -1791,6 +1791,16 @@ List<String> describeEdit(SimCard a, SimCard b) => [
         '卡背机密',
       if (a.boundServices.join('\n') != b.boundServices.join('\n')) '绑定服务',
       if (a.notes != b.notes) '备注',
+      if (a.planType != b.planType) '预付/上台',
+      if (a.keepAliveEnabled != b.keepAliveEnabled) '保号规则开关',
+      if (a.kind != b.kind || a.customKind != b.customKind) '用途类型',
+      if (a.source != b.source) '来源平台',
+      if (a.dataTotalGb != b.dataTotalGb || a.dataUnlimited != b.dataUnlimited)
+        '总流量',
+      if (a.planStartDate != b.planStartDate ||
+          a.planDays != b.planDays ||
+          a.planEndDate != b.planEndDate)
+        '套餐有效期',
     ];
 
 const _greyscale = ColorFilter.matrix([
